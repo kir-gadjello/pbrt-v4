@@ -1,0 +1,64 @@
+name: VPT real oracle artifact ferry
+
+on:
+  push:
+    branches: [audit/vpt-real-oracle-2026-09-04]
+    paths: ['.github/workflows/vpt-real-oracle-ferry.yml']
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  ferry:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Wait for v2, download its artifact, publish isolated ferry branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          workflow='vpt-real-oracle-v2.yml'
+          source_branch='audit/vpt-real-oracle-2026-09-04'
+          ferry_branch='audit-artifacts/vpt-real-oracle-2026-09-04'
+          run_id=''
+          for i in $(seq 1 30); do
+            run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?branch=$source_branch&event=push&per_page=1" --jq '.workflow_runs[0].id // empty')
+            [ -n "$run_id" ] && break
+            sleep 5
+          done
+          test -n "$run_id"
+          conclusion=''
+          status=''
+          for i in $(seq 1 240); do
+            status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status')
+            conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.conclusion // empty')
+            [ "$status" = completed ] && break
+            sleep 10
+          done
+          rm -rf /tmp/ferry && mkdir -p /tmp/ferry
+          printf 'run_id=%s\nstatus=%s\nconclusion=%s\nsource_branch=%s\npbrt_pin=ac967b591755271a26149585b0a1f6036d86d32f\n' "$run_id" "$status" "$conclusion" "$source_branch" > /tmp/ferry/STATUS.txt
+          if [ "$conclusion" = success ]; then
+            gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name vpt-real-oracle-substrate-v2 --dir /tmp/downloaded
+            find /tmp/downloaded -type f -maxdepth 4 -print
+            for n in vpt-cargo-vendor.tar.zst vpt-cargo-vendor.tar.zst.sha256 mitsuba-runtime-wheelhouse.tar.zst mitsuba-runtime-wheelhouse.tar.zst.sha256 pbrt-real-oracle-bin.tar.zst pbrt-real-oracle-bin.tar.zst.sha256; do
+              f=$(find /tmp/downloaded -type f -name "$n" -print -quit)
+              test -n "$f"
+              cp "$f" /tmp/ferry/$n
+            done
+            sha256sum /tmp/ferry/*.tar.zst > /tmp/ferry/FERRY_SHA256SUMS
+          fi
+          git checkout --orphan "$ferry_branch"
+          git rm -rf . || true
+          cp -a /tmp/ferry/. .
+          git add -A
+          git config user.name 'vpt-oracle-bot'
+          git config user.email 'vpt-oracle-bot@users.noreply.github.com'
+          git commit -m "audit ferry: VPT real oracle run $run_id ($conclusion)"
+          git push --force origin HEAD:"$ferry_branch"
