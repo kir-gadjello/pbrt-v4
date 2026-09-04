@@ -48,13 +48,25 @@ jobs:
       - name: Build test renderer
         run: cmake --build build --parallel 3 --target pbrt_test pbrt_exe imgtool
 
-      - name: Run analytic reference oracles
+      - name: Verify oracle tests are discoverable
+        shell: bash
         run: |
-          ./build/pbrt_test --gtest_color=yes --gtest_filter='ReferenceOracle.*' | tee reference-oracle.log
+          set -euo pipefail
+          ./build/pbrt_test --list-tests | tee all-tests.log
+          grep -q 'ReferenceOracle\.' all-tests.log
+
+      - name: Run analytic reference oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build/pbrt_test --test-filter 'ReferenceOracle\..*' 2>&1 | tee reference-oracle.log
+          grep -q 'tests passed' reference-oracle.log
 
       - name: Run existing BSDF statistical regression suite
+        shell: bash
         run: |
-          ./build/pbrt_test --gtest_color=yes --gtest_filter='BSDFSampling.*:BSDFEnergyConservation.*' | tee bsdf-regression.log
+          set -euo pipefail
+          ./build/pbrt_test --test-filter '(BSDFSampling|BSDFEnergyConservation)\..*' 2>&1 | tee bsdf-regression.log
 
       - name: Upload qualification logs
         if: always()
@@ -62,6 +74,7 @@ jobs:
         with:
           name: reference-oracle-analytic-logs
           path: |
+            all-tests.log
             reference-oracle.log
             bsdf-regression.log
           if-no-files-found: ignore
