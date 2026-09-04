@@ -1,0 +1,83 @@
+name: reference-render-canaries
+
+on:
+  push:
+    branches:
+      - oracle/reference-hardening-2026-09-04
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reference-render-canaries-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  transport-canaries:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Checkout pregenerated RGB-to-spectrum tables
+        uses: actions/checkout@v5
+        with:
+          repository: mmp/rgb2spectrum
+          path: build
+
+      - name: Get CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Configure CPU reference build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES=True
+
+      - name: Build renderer and image measurement tool
+        run: cmake --build build --parallel 3 --target pbrt_exe imgtool
+
+      - name: Run analytic rendered-transport canaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 oracle/render_canaries.py \
+            --pbrt build/pbrt \
+            --imgtool build/imgtool \
+            --out reference-canaries \
+            --commit "$GITHUB_SHA"
+
+      - name: Seal canary provenance
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "commit=${GITHUB_SHA}"
+            echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
+            echo "compiler=$(c++ --version | head -1 || true)"
+            ./build/pbrt --version || true
+            echo "submodules:"
+            git submodule status --recursive
+            echo "binaries:"
+            shasum -a 256 build/pbrt build/imgtool
+            echo "oracle-script:"
+            shasum -a 256 oracle/render_canaries.py
+          } > reference-canaries/provenance.txt
+
+      - name: Upload transport canary artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reference-render-canaries-${{ github.sha }}
+          path: reference-canaries/
+          if-no-files-found: error
+          retention-days: 14
