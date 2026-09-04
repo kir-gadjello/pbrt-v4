@@ -235,6 +235,46 @@ class PathIntegrator : public RayIntegrator {
     bool regularize;
 };
 
+// IrradianceIntegrator Definition
+//
+// Measures hemispherical irradiance E = integral_H Li(w) cos(theta) dw at the
+// first material-bearing surface visible to each camera sample.  The sensor
+// surface itself is not a scattering vertex.  A cosine-hemisphere sample
+// continues through the ordinary PBRT surface path tracer, while next-event
+// light sampling at the sensor is combined with it using MIS.
+class IrradianceIntegrator : public RayIntegrator {
+  public:
+    IrradianceIntegrator(int maxDepth, bool directOnly, Camera camera, Sampler sampler,
+                         Primitive aggregate, std::vector<Light> lights,
+                         const std::string &lightSampleStrategy = "bvh",
+                         bool regularize = false)
+        : RayIntegrator(camera, sampler, aggregate, lights),
+          maxDepth(maxDepth),
+          directOnly(directOnly),
+          lightSampler(LightSampler::Create(lightSampleStrategy, lights, Allocator())),
+          regularize(regularize) {}
+
+    SampledSpectrum Li(RayDifferential ray, SampledWavelengths &lambda, Sampler sampler,
+                       ScratchBuffer &scratchBuffer,
+                       VisibleSurface *visibleSurface) const;
+
+    static std::unique_ptr<IrradianceIntegrator> Create(
+        const ParameterDictionary &parameters, Camera camera, Sampler sampler,
+        Primitive aggregate, std::vector<Light> lights, const FileLoc *loc);
+
+    std::string ToString() const;
+
+  private:
+    SampledSpectrum SampleSensorDirect(const SurfaceInteraction &intr, Normal3f n,
+                                       SampledWavelengths &lambda,
+                                       Sampler sampler) const;
+
+    int maxDepth;
+    bool directOnly;
+    LightSampler lightSampler;
+    bool regularize;
+};
+
 // SimpleVolPathIntegrator Definition
 class SimpleVolPathIntegrator : public RayIntegrator {
   public:
