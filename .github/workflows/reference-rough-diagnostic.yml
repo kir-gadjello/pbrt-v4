@@ -53,7 +53,7 @@ jobs:
           needle = '            CHECK(!IsNaN(pdf));'
           if s.count(needle) != 1:
               raise SystemExit(f'expected exactly one rough-transmission NaN check, found {s.count(needle)}')
-          replacement = r'''            if (IsNaN(pdf)) {
+          replacement = '''            if (IsNaN(pdf)) {
                 std::fprintf(stderr,
                     "REFERENCE_ROUGH_NAN eta=%.9g etap=%.9g uc=%.9g u=(%.9g,%.9g) "
                     "wo=(%.9g,%.9g,%.9g) wm=(%.9g,%.9g,%.9g) wi=(%.9g,%.9g,%.9g) "
