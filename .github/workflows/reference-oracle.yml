@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   analytic-f32:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout fork
@@ -114,7 +114,8 @@ jobs:
           if-no-files-found: ignore
 
   analytic-f64:
-    runs-on: ubuntu-22.04
+    needs: analytic-f32
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout fork
