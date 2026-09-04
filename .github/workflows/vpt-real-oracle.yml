@@ -1,0 +1,148 @@
+name: VPT real path-tracer oracle substrate
+
+on:
+  push:
+    branches: [audit/vpt-real-oracle-2026-09-04]
+    paths:
+      - '.github/workflows/vpt-real-oracle.yml'
+      - 'oracle/vpt/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  substrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout pinned PBRT oracle source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install native build/runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build zstd git pkg-config \
+            libtbb-dev libopenexr-dev libgl1-mesa-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools
+
+      - name: Recover exact VPT Cargo manifest from staged RTC3 archive prefix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/vpt-manifest
+          cat oracle/vpt/chunk*.b64 > /tmp/vpt-prefix.b64
+          # Every staged source chunk ends on a base64 quantum; the tail of the
+          # compressed frame is intentionally not required for early tar members.
+          base64 -d /tmp/vpt-prefix.b64 > /tmp/vpt-prefix.tar.zst
+          (zstd -dc /tmp/vpt-prefix.tar.zst > /tmp/vpt-prefix.tar) || true
+          tar -tvf /tmp/vpt-prefix.tar | head -40
+          tar -xf /tmp/vpt-prefix.tar -C /tmp/vpt-manifest Cargo.toml Cargo.lock
+          test -s /tmp/vpt-manifest/Cargo.toml
+          test -s /tmp/vpt-manifest/Cargo.lock
+          sha256sum /tmp/vpt-manifest/Cargo.toml /tmp/vpt-manifest/Cargo.lock | tee /tmp/vpt-manifest/manifest.sha256
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Vendor exact locked VPT crate graph
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/vpt-manifest
+          mkdir -p .cargo
+          cargo vendor --locked --versioned-dirs vendor > .cargo/config.toml
+          cargo metadata --locked --offline --no-deps > cargo-metadata.json
+          tar -I 'zstd -19 -T0' -cf /tmp/vpt-cargo-vendor.tar.zst \
+            Cargo.toml Cargo.lock .cargo vendor cargo-metadata.json manifest.sha256
+          sha256sum /tmp/vpt-cargo-vendor.tar.zst > /tmp/vpt-cargo-vendor.tar.zst.sha256
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Materialize exact Mitsuba 3.9.1 + Dr.Jit 1.5.0 runtime
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install --upgrade pip
+          mkdir -p /tmp/mitsuba-wheelhouse /tmp/mi-smoke
+          python -m pip download --only-binary=:all: \
+            'drjit==1.5.0' 'mitsuba==3.9.1' 'numpy<3' pillow OpenEXR \
+            -d /tmp/mitsuba-wheelhouse
+          sha256sum /tmp/mitsuba-wheelhouse/* | sort > /tmp/mitsuba-wheelhouse/SHA256SUMS
+          python -m pip install --no-index --find-links=/tmp/mitsuba-wheelhouse \
+            'drjit==1.5.0' 'mitsuba==3.9.1' 'numpy<3' pillow OpenEXR
+          python - <<'PY'
+          import json, pathlib
+          import drjit as dr
+          import mitsuba as mi
+          import numpy as np
+          print('Mitsuba', mi.__version__)
+          print('Dr.Jit', dr.__version__)
+          assert mi.__version__ == '3.9.1'
+          assert dr.__version__ == '1.5.0'
+          mi.set_variant('scalar_rgb')
+          scene = mi.load_dict({
+              'type':'scene',
+              'integrator': {'type':'path', 'max_depth':8, 'rr_depth':5},
+              'sensor': {
+                  'type':'perspective', 'fov':45,
+                  'to_world': mi.ScalarTransform4f.look_at(origin=[0,1.5,4], target=[0,0.7,0], up=[0,1,0]),
+                  'sampler': {'type':'independent', 'sample_count':64},
+                  'film': {'type':'hdrfilm','width':64,'height':64,'pixel_format':'rgb','component_format':'float32','rfilter':{'type':'box'}}
+              },
+              'env': {'type':'constant','radiance': {'type':'rgb','value':[0.35,0.45,0.65]}},
+              'floor': {'type':'rectangle','to_world': mi.ScalarTransform4f.rotate([1,0,0], -90).scale([3,3,3]),
+                        'bsdf': {'type':'diffuse','reflectance': {'type':'rgb','value':[0.65,0.65,0.65]}}},
+              'box': {'type':'cube','to_world': mi.ScalarTransform4f.translate([-0.55,0.55,-0.2]).scale([0.55,0.55,0.55]),
+                      'bsdf': {'type':'diffuse','reflectance': {'type':'rgb','value':[0.7,0.22,0.12]}}}
+          })
+          img = mi.render(scene, spp=64, seed=17)
+          arr = np.array(img, dtype=np.float32)
+          assert np.isfinite(arr).all() and float(arr.mean()) > 0
+          mi.util.write_bitmap('/tmp/mi-smoke/mitsuba-smoke.exr', img)
+          mi.util.write_bitmap('/tmp/mi-smoke/mitsuba-smoke.png', img)
+          pathlib.Path('/tmp/mi-smoke/runtime.json').write_text(json.dumps({
+              'mitsuba': mi.__version__, 'drjit': dr.__version__,
+              'mean_rgb': arr.mean(axis=(0,1)).tolist(), 'max': float(arr.max())
+          }, indent=2))
+          PY
+          tar -I 'zstd -19 -T0' -cf /tmp/mitsuba-runtime-wheelhouse.tar.zst -C /tmp mitsuba-wheelhouse mi-smoke
+          sha256sum /tmp/mitsuba-runtime-wheelhouse.tar.zst > /tmp/mitsuba-runtime-wheelhouse.tar.zst.sha256
+
+      - name: Build pinned real PBRT-v4 CPU renderer
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git rev-parse HEAD | tee /tmp/PBRT_COMMIT
+          test "$(git rev-parse HEAD)" = 'ac967b591755271a26149585b0a1f6036d86d32f'
+          cmake -S . -B build-vpt-oracle -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPBRT_BUILD_GPU_RENDERER=OFF \
+            -DPBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES=ON
+          cmake --build build-vpt-oracle --target pbrt_exe imgtool -j 2
+          ./build-vpt-oracle/pbrt --help >/tmp/pbrt-help.txt
+          tar -I 'zstd -19 -T0' -cf /tmp/pbrt-real-oracle-bin.tar.zst \
+            build-vpt-oracle/pbrt build-vpt-oracle/imgtool /tmp/PBRT_COMMIT /tmp/pbrt-help.txt
+          sha256sum /tmp/pbrt-real-oracle-bin.tar.zst > /tmp/pbrt-real-oracle-bin.tar.zst.sha256
+
+      - name: Upload locked execution substrate
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpt-real-oracle-substrate
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/vpt-cargo-vendor.tar.zst
+            /tmp/vpt-cargo-vendor.tar.zst.sha256
+            /tmp/mitsuba-runtime-wheelhouse.tar.zst
+            /tmp/mitsuba-runtime-wheelhouse.tar.zst.sha256
+            /tmp/pbrt-real-oracle-bin.tar.zst
+            /tmp/pbrt-real-oracle-bin.tar.zst.sha256
