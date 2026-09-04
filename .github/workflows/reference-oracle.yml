@@ -53,20 +53,21 @@ jobs:
         run: |
           set -euo pipefail
           ./build/pbrt_test --list-tests | tee all-tests.log
-          grep -q 'ReferenceOracle\.' all-tests.log
+          grep -q 'ReferenceOracle[.]' all-tests.log
 
       - name: Run analytic reference oracles
         shell: bash
         run: |
           set -euo pipefail
-          ./build/pbrt_test --test-filter 'ReferenceOracle\..*' 2>&1 | tee reference-oracle.log
-          grep -q 'tests passed' reference-oracle.log
+          ./build/pbrt_test --test-filter 'ReferenceOracle[.].*' 2>&1 | tee reference-oracle.log
+          grep -Eq 'Running [1-9][0-9]* tests?' reference-oracle.log
 
       - name: Run existing BSDF statistical regression suite
         shell: bash
         run: |
           set -euo pipefail
-          ./build/pbrt_test --test-filter '(BSDFSampling|BSDFEnergyConservation)\..*' 2>&1 | tee bsdf-regression.log
+          ./build/pbrt_test --test-filter '(BSDFSampling|BSDFEnergyConservation)[.].*' 2>&1 | tee bsdf-regression.log
+          grep -Eq 'Running [1-9][0-9]* tests?' bsdf-regression.log
 
       - name: Upload qualification logs
         if: always()
