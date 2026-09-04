@@ -79,6 +79,7 @@ jobs:
           grep -Eq 'Running [1-9][0-9]* tests?' reference-oracle.log
 
       - name: Run existing BSDF statistical regression suite
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -125,6 +126,7 @@ jobs:
 
   analytic-f64:
     needs: analytic-f32
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -181,6 +183,7 @@ jobs:
           grep -Eq 'Running [1-9][0-9]* tests?' reference-oracle-f64.log
 
       - name: Run f64 BSDF statistical regression suite
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
