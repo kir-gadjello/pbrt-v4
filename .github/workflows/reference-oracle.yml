@@ -1,0 +1,67 @@
+name: reference-oracle-qualification
+
+on:
+  push:
+    branches:
+      - oracle/reference-hardening-2026-09-04
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analytic-bsdf:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Checkout pregenerated RGB-to-spectrum tables
+        uses: actions/checkout@v5
+        with:
+          repository: mmp/rgb2spectrum
+          path: build
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libopenexr-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev \
+            libxi-dev libxext-dev libxfixes-dev libgl1-mesa-dev \
+            libwayland-bin libwayland-dev wayland-protocols \
+            libxkbcommon-dev libxkbcommon-x11-0
+
+      - name: Inject analytic reference tests
+        run: cat oracle/reference_bsdf_tests.inc >> src/pbrt/bsdfs_test.cpp
+
+      - name: Configure CPU build
+        run: |
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES=True
+
+      - name: Build test renderer
+        run: cmake --build build --parallel 3 --target pbrt_test pbrt_exe imgtool
+
+      - name: Run analytic reference oracles
+        run: |
+          ./build/pbrt_test --gtest_color=yes --gtest_filter='ReferenceOracle.*' | tee reference-oracle.log
+
+      - name: Run existing BSDF statistical regression suite
+        run: |
+          ./build/pbrt_test --gtest_color=yes --gtest_filter='BSDFSampling.*:BSDFEnergyConservation.*' | tee bsdf-regression.log
+
+      - name: Upload qualification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reference-oracle-analytic-logs
+          path: |
+            reference-oracle.log
+            bsdf-regression.log
+          if-no-files-found: ignore
