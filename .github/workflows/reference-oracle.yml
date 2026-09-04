@@ -62,14 +62,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./build/pbrt_test --test-filter '(ReferenceOracle|ReferenceOracleFloat)[.].*' 2>&1 | tee reference-oracle.log
+          ./build/pbrt_test --test-filter 'ReferenceOracle.*:ReferenceOracleFloat.*' 2>&1 | tee reference-oracle.log
           grep -Eq 'Running [1-9][0-9]* tests?' reference-oracle.log
 
       - name: Run existing BSDF statistical regression suite
         shell: bash
         run: |
           set -euo pipefail
-          ./build/pbrt_test --test-filter '(BSDFSampling|BSDFEnergyConservation)[.].*' 2>&1 | tee bsdf-regression.log
+          ./build/pbrt_test --test-filter 'BSDFSampling.*:BSDFEnergyConservation.*' 2>&1 | tee bsdf-regression.log
           grep -Eq 'Running [1-9][0-9]* tests?' bsdf-regression.log
 
       - name: Seal qualified build manifest
@@ -154,14 +154,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./build/pbrt_test --test-filter '(ReferenceOracle|ReferenceOracleFloat)[.].*|FloatingPoint[.]NextUpDownDouble' 2>&1 | tee reference-oracle-f64.log
+          ./build/pbrt_test --test-filter 'ReferenceOracle.*:ReferenceOracleFloat.*:FloatingPoint.NextUpDownDouble' 2>&1 | tee reference-oracle-f64.log
           grep -Eq 'Running [1-9][0-9]* tests?' reference-oracle-f64.log
 
       - name: Run f64 BSDF statistical regression suite
         shell: bash
         run: |
           set -euo pipefail
-          ./build/pbrt_test --test-filter '(BSDFSampling|BSDFEnergyConservation)[.].*' 2>&1 | tee bsdf-regression-f64.log
+          ./build/pbrt_test --test-filter 'BSDFSampling.*:BSDFEnergyConservation.*' 2>&1 | tee bsdf-regression-f64.log
           grep -Eq 'Running [1-9][0-9]* tests?' bsdf-regression-f64.log
 
       - name: Upload f64 qualification logs
