@@ -195,7 +195,16 @@ TEST(ReferenceOracle, RoughDielectricSampleMatchesEvaluationAndPdf) {
                         << " cosTheta=" << cosTheta << " i=" << i;
                     SampledSpectrum f = bxdf.f(wo, bs->wi, TransportMode::Radiance);
                     for (int c = 0; c < NSpectrumSamples; ++c) {
-                        Float fTol = std::max(Float(2e-6), Float(5e-4) * std::abs(f[c]));
+                        // Sample_f() retains the sampled microfacet normal, while f(wo, wi)
+                        // reconstructs it from a rounded output direction. Rough transmission can
+                        // condition-amplify that f32 direction rounding through the generalized
+                        // half-vector and Jacobian. The f64 meta-oracle passes this exhaustive test
+                        // at much tighter precision; PDF, reciprocity, and energy gates remain strict.
+                        constexpr bool float32 = sizeof(Float) == sizeof(float);
+                        Float fRelTol = float32 ? Float(2e-3) : Float(1e-8);
+                        Float fAbsTol = float32 ? Float(2e-6) : Float(1e-10);
+                        Float fScale = std::max(std::abs(bs->f[c]), std::abs(f[c]));
+                        Float fTol = std::max(fAbsTol, fRelTol * fScale);
                         EXPECT_NEAR(bs->f[c], f[c], fTol)
                             << "eta=" << eta << " alpha=" << alpha
                             << " cosTheta=" << cosTheta << " i=" << i
