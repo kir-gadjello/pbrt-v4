@@ -63,7 +63,9 @@ jobs:
               out.extend(bytes((128,128,0,255))*n)
               w=max(1,w//2)
           p=Path('vpt/assets/material_atlas_v6.bin.gz')
-          with gzip.open(p,'wb',compresslevel=9,mtime=0) as f: f.write(out)
+          with p.open('wb') as raw:
+              with gzip.GzipFile(filename='',mode='wb',fileobj=raw,compresslevel=9,mtime=0) as f:
+                  f.write(out)
           print('atlas raw bytes',len(out),'gzip bytes',p.stat().st_size)
           PY
           sha256sum vpt/assets/material_atlas_v6.bin.gz | tee vpt/atlas.sha256
