@@ -32,9 +32,17 @@ PBRT_CPU_GPU inline bool Refract(Vector3f wi, Normal3f n, Float eta, Float *etap
     // Compute $\cos\,\theta_\roman{t}$ using Snell's law
     Float sin2Theta_i = std::max<Float>(0, 1 - Sqr(cosTheta_i));
     Float sin2Theta_t = sin2Theta_i / Sqr(eta);
-    // Handle total internal reflection case
-    if (sin2Theta_t >= 1)
+    // Handle total internal reflection case. Keep output parameters initialized
+    // even on failure: a rough-dielectric caller historically inspected wi
+    // before checking the returned TIR flag, which made a rare near-critical
+    // sample read an indeterminate vector and occasionally form a NaN PDF.
+    if (sin2Theta_t >= 1) {
+        if (wt)
+            *wt = Vector3f(0, 0, 0);
+        if (etap)
+            *etap = eta;
         return false;
+    }
 
     Float cosTheta_t = std::sqrt(1 - sin2Theta_t);
 
