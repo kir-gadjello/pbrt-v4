@@ -1,0 +1,117 @@
+name: VPT real oracle v2
+
+on:
+  push:
+    branches: [audit/vpt-real-oracle-2026-09-04]
+    paths:
+      - '.github/workflows/vpt-real-oracle-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  substrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build zstd git pkg-config libtbb-dev libopenexr-dev libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan1 mesa-vulkan-drivers vulkan-tools
+
+      - name: Recover exact VPT lockfile from archive prefix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/vpt-manifest
+          cat oracle/vpt/chunk*.b64 > /tmp/vpt-prefix.b64
+          base64 -d /tmp/vpt-prefix.b64 > /tmp/vpt-prefix.tar.zst
+          (zstd -dc /tmp/vpt-prefix.tar.zst > /tmp/vpt-prefix.tar) || true
+          tar -xf /tmp/vpt-prefix.tar -C /tmp/vpt-manifest Cargo.toml Cargo.lock
+          test -s /tmp/vpt-manifest/Cargo.toml && test -s /tmp/vpt-manifest/Cargo.lock
+          sha256sum /tmp/vpt-manifest/Cargo.toml /tmp/vpt-manifest/Cargo.lock | tee /tmp/vpt-manifest/manifest.sha256
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Vendor locked Cargo graph
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/vpt-manifest
+          mkdir -p .cargo
+          cargo vendor --locked --versioned-dirs vendor > .cargo/config.toml
+          cargo metadata --locked --offline --no-deps > cargo-metadata.json
+          tar -I 'zstd -19 -T0' -cf /tmp/vpt-cargo-vendor.tar.zst Cargo.toml Cargo.lock .cargo vendor cargo-metadata.json manifest.sha256
+          sha256sum /tmp/vpt-cargo-vendor.tar.zst > /tmp/vpt-cargo-vendor.tar.zst.sha256
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Real Mitsuba runtime and smoke render
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install -U pip
+          mkdir -p /tmp/mitsuba-wheelhouse /tmp/mi-smoke
+          python -m pip download --only-binary=:all: 'drjit==1.5.0' 'mitsuba==3.9.1' 'numpy<3' pillow OpenEXR -d /tmp/mitsuba-wheelhouse
+          sha256sum /tmp/mitsuba-wheelhouse/* | sort > /tmp/mitsuba-wheelhouse/SHA256SUMS
+          python -m pip install --no-index --find-links=/tmp/mitsuba-wheelhouse 'drjit==1.5.0' 'mitsuba==3.9.1' 'numpy<3' pillow OpenEXR
+          python - <<'PY'
+          import json, pathlib, numpy as np
+          import drjit as dr, mitsuba as mi
+          assert mi.__version__ == '3.9.1' and dr.__version__ == '1.5.0'
+          mi.set_variant('scalar_rgb')
+          scene=mi.load_dict({'type':'scene','integrator':{'type':'path','max_depth':8,'rr_depth':5},'sensor':{'type':'perspective','fov':45,'to_world':mi.ScalarTransform4f.look_at(origin=[0,1.5,4],target=[0,.7,0],up=[0,1,0]),'sampler':{'type':'independent','sample_count':64},'film':{'type':'hdrfilm','width':64,'height':64,'pixel_format':'rgb','component_format':'float32','rfilter':{'type':'box'}}},'env':{'type':'constant','radiance':{'type':'rgb','value':[.35,.45,.65]}},'floor':{'type':'rectangle','to_world':mi.ScalarTransform4f.rotate([1,0,0],-90).scale([3,3,3]),'bsdf':{'type':'diffuse','reflectance':{'type':'rgb','value':[.65,.65,.65]}}},'box':{'type':'cube','to_world':mi.ScalarTransform4f.translate([-.55,.55,-.2]).scale([.55,.55,.55]),'bsdf':{'type':'diffuse','reflectance':{'type':'rgb','value':[.7,.22,.12]}}}})
+          img=mi.render(scene,spp=64,seed=17); a=np.array(img,dtype=np.float32)
+          assert np.isfinite(a).all() and a.mean()>0
+          mi.util.write_bitmap('/tmp/mi-smoke/mitsuba-smoke.exr',img); mi.util.write_bitmap('/tmp/mi-smoke/mitsuba-smoke.png',img)
+          pathlib.Path('/tmp/mi-smoke/runtime.json').write_text(json.dumps({'mitsuba':mi.__version__,'drjit':dr.__version__,'mean_rgb':a.mean((0,1)).tolist(),'max':float(a.max())},indent=2))
+          PY
+          tar -I 'zstd -19 -T0' -cf /tmp/mitsuba-runtime-wheelhouse.tar.zst -C /tmp mitsuba-wheelhouse mi-smoke
+          sha256sum /tmp/mitsuba-runtime-wheelhouse.tar.zst > /tmp/mitsuba-runtime-wheelhouse.tar.zst.sha256
+
+      - name: Build pinned PBRT CPU executable
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test "$(git rev-parse HEAD)" = ac967b591755271a26149585b0a1f6036d86d32f
+          git rev-parse HEAD > /tmp/PBRT_COMMIT
+          cmake -S . -B build-vpt-oracle -G Ninja -DCMAKE_BUILD_TYPE=Release -DPBRT_BUILD_GPU_RENDERER=OFF -DPBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES=ON
+          cmake --build build-vpt-oracle --target pbrt_exe imgtool -j 2
+          ./build-vpt-oracle/pbrt --help > /tmp/pbrt-help.txt
+          tar -I 'zstd -19 -T0' -cf /tmp/pbrt-real-oracle-bin.tar.zst build-vpt-oracle/pbrt build-vpt-oracle/imgtool /tmp/PBRT_COMMIT /tmp/pbrt-help.txt
+          sha256sum /tmp/pbrt-real-oracle-bin.tar.zst > /tmp/pbrt-real-oracle-bin.tar.zst.sha256
+
+      - name: Upload substrate
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpt-real-oracle-substrate-v2
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/vpt-cargo-vendor.tar.zst
+            /tmp/vpt-cargo-vendor.tar.zst.sha256
+            /tmp/mitsuba-runtime-wheelhouse.tar.zst
+            /tmp/mitsuba-runtime-wheelhouse.tar.zst.sha256
+            /tmp/pbrt-real-oracle-bin.tar.zst
+            /tmp/pbrt-real-oracle-bin.tar.zst.sha256
+
+      - name: Publish run locator
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          JOB_STATUS: ${{ job.status }}
+          SHA: ${{ github.sha }}
+        run: |
+          printf 'run_id=%s\nattempt=%s\nstatus=%s\nsha=%s\nurl=https://github.com/%s/actions/runs/%s\n' "$RUN_ID" "$RUN_ATTEMPT" "$JOB_STATUS" "$SHA" "$GITHUB_REPOSITORY" "$RUN_ID" > /tmp/run-locator.txt
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "VPT-REAL-ORACLE-RUN ${RUN_ID} ${JOB_STATUS}" --body-file /tmp/run-locator.txt || true
