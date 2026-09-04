@@ -202,13 +202,13 @@ class TrowbridgeReitzDistribution {
 
     std::string ToString() const;
 
-    // Reference-hardening fork: use the standard perceptual PBR mapping
-    // alpha = roughness^2. Upstream kept sqrt(roughness) only for historical
-    // image compatibility after acknowledging it as incorrect (mmp/pbrt-v4#479).
-    // A qualification renderer must prefer defined material semantics over
-    // compatibility with scenes authored around the old bug.
+    // Preserve upstream scene-language semantics.  The GI oracle adapter does not
+    // rely on this perceptual remap: it canonicalizes engine roughness to GGX alpha
+    // and sets remaproughness=false in generated PBRT scenes.  Keeping the upstream
+    // mapping here minimizes source divergence and avoids silently changing unrelated
+    // third-party PBRT-v4 scenes.
     PBRT_CPU_GPU
-    static Float RoughnessToAlpha(Float roughness) { return Sqr(roughness); }
+    static Float RoughnessToAlpha(Float roughness) { return std::sqrt(roughness); }
 
     PBRT_CPU_GPU
     void Regularize() {
