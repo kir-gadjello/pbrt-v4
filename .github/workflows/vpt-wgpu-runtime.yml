@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   rtc3-vulkan-lavapipe:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       VPT_PAYLOAD_SHA256: 572163a8e89b589ce4223315010b6d4530f06c0d2c1104fe16a38498907f32ba

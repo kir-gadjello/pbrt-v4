@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   mitsuba-3-9-1-llvm-rgb:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       MITSUBA_WHEEL_SHA256: 8959e8de33427cf4d9b515a52d741dca7624e7c17094c5849f123a96504ca123
