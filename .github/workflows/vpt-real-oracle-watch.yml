@@ -1,0 +1,51 @@
+name: VPT real oracle watcher
+
+on:
+  push:
+    branches: [audit/vpt-real-oracle-2026-09-04]
+    paths: ['.github/workflows/vpt-real-oracle-watch.yml']
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Wait for latest v2 substrate run and publish locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          workflow='vpt-real-oracle-v2.yml'
+          branch='audit/vpt-real-oracle-2026-09-04'
+          run_id=''
+          for i in $(seq 1 30); do
+            run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?branch=$branch&event=push&per_page=1" --jq '.workflow_runs[0].id // empty')
+            [ -n "$run_id" ] && break
+            sleep 5
+          done
+          test -n "$run_id"
+          for i in $(seq 1 180); do
+            status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status')
+            conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.conclusion // empty')
+            printf 'run_id=%s\nstatus=%s\nconclusion=%s\n' "$run_id" "$status" "$conclusion" | tee /tmp/locator
+            [ "$status" = completed ] && break
+            sleep 10
+          done
+          test "$status" = completed
+          mkdir -p oracle/status
+          cp /tmp/locator oracle/status/vpt-real-oracle-v2.txt
+          printf 'url=https://github.com/%s/actions/runs/%s\n' "$GITHUB_REPOSITORY" "$run_id" >> oracle/status/vpt-real-oracle-v2.txt
+          git config user.name 'vpt-oracle-bot'
+          git config user.email 'vpt-oracle-bot@users.noreply.github.com'
+          git add oracle/status/vpt-real-oracle-v2.txt
+          git commit -m "audit: record real oracle run $run_id ($conclusion)" || exit 0
+          git push origin HEAD:$branch
