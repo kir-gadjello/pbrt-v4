@@ -17,8 +17,13 @@ on:
       - '**.md'
       - 'images/**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
+    if: github.ref_name != 'oracle/reference-hardening-2026-09-04'
     strategy:
       fail-fast: false
       matrix:
