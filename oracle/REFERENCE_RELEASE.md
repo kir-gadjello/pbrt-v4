@@ -1,55 +1,61 @@
 # PBRT-v4 Reference Fork — GI Oracle Release Contract
 
-Status: **qualification branch / release candidate work**
+Status: **qualification branch / RC work**
 
-This fork is not intended to certify every PBRT-v4 feature. Its purpose is narrower and more useful: provide a pinned, reproducible, physically defensible CPU reference renderer for qualification of sparse real-time GI systems used with teardown-like voxel worlds.
+This fork does not attempt to certify every PBRT-v4 feature. Its purpose is narrower: provide a pinned, reproducible, physically defensible **CPU reference renderer** for qualification of sparse real-time GI systems in teardown-like voxel worlds.
 
-## 1. Release claim
+A commit may be called **GI Oracle Qualified** only when all mandatory gates below pass on that exact commit. The claim applies only to the explicitly qualified surface.
 
-A commit may be called **GI Oracle Qualified** only when all mandatory gates below pass on that exact commit. The claim applies only to the qualified surface in §2. Features in §3 are explicitly outside the claim even when they happen to build or work.
-
-The reference fork is expected to prefer explicit physical/material semantics and reproducibility over preserving historical image appearance of upstream scenes.
-
-## 2. Qualified surface
+## 1. Qualified surface
 
 ### Geometry
 
-- triangle meshes / surface-extracted voxel boundaries
-- analytic planes, disks, quads and spheres when used by qualification scenes
-- instancing and rigid transforms only insofar as exercised by canary scenes
+- triangle meshes / independently surface-extracted voxel boundaries;
+- simple analytic fixtures used by qualification scenes;
+- rigid transforms and instancing only insofar as exercised by canaries.
 
-The production GI oracle should convert voxel worlds to an independent surface representation rather than reuse the DUT's voxel traversal code. This avoids correlated visibility bugs.
+The oracle geometry path must not reuse the DUT's DDA, visibility cache, GI page graph, surface cache, or interpolation code.
+
+**Orientation is part of the physical contract.** Closed dielectric and medium boundaries must have coherent outward winding. PBRT defines the dielectric exterior as the side toward which the surface normal points, and `MediumInterface` likewise associates distinct interior/exterior media. Inverted geometry can therefore change the physical interface, not merely its shading orientation.
+
+The adapter must reject or explicitly repair inverted/ambiguous closed transmissive components, and any repair must be recorded in provenance. Non-manifold/open volumetric boundaries are outside reference status unless sidedness is explicitly authored.
 
 ### Materials
 
 Mandatory:
 
-- diffuse/Lambertian
-- dielectric, including rough dielectric
-- thin dielectric
-- conductor, including rough conductor
-- physically bounded emissive surfaces
+- diffuse/Lambertian;
+- dielectric, including rough dielectric;
+- thin dielectric;
+- conductor, including rough conductor;
+- physically bounded emissive surfaces.
 
-Optional for the first qualified release and only part of the claim after explicit tests exist:
+Optional only after dedicated qualification:
 
-- coated diffuse / coated conductor
-- diffuse transmission
+- coated diffuse / coated conductor;
+- diffuse transmission.
 
-Material normalization is owned by the oracle adapter, not by PBRT scene defaults. In particular, the canonical microfacet parameter is **GGX alpha**. If an engine-facing perceptual roughness `r` is accepted, this fork defines the mapping as `alpha = r^2`.
+**Material normalization belongs to the oracle adapter.** The canonical microfacet parameter is GGX alpha. For our engine-facing perceptual roughness convention `r`, the adapter uses:
+
+`alpha = r^2`
+
+and emits PBRT materials with `remaproughness=false`. PBRT's historical default `roughness` remapping is deliberately left source-compatible and therefore cannot silently redefine oracle semantics.
 
 ### Media
 
-- vacuum
-- homogeneous absorption/scattering media used for water/glass/fog qualification
+Qualified:
 
-Heterogeneous volumes are not required for the first release claim.
+- vacuum;
+- homogeneous absorption/scattering media used for water/glass/fog qualification through `volpath`.
+
+Heterogeneous volumes are outside the first release claim.
 
 ### Lighting / environment
 
-- finite area lights
-- point/distant lights when useful for analytic fixtures
-- uniform and image infinite lights
-- externally generated canonical sky/environment maps
+- finite area lights;
+- point/distant lights for analytic fixtures;
+- uniform and image infinite lights;
+- externally generated canonical sky/environment maps.
 
 Sky semantics should normally be defined outside PBRT and supplied as a radiance environment so the same environment can drive PBRT, the DUT, and independent solvers.
 
@@ -57,146 +63,161 @@ Sky semantics should normally be defined outside PBRT and supplied as a radiance
 
 Primary reference backends:
 
-- `path` for surface-only transport
-- `volpath` for the general surface + participating-media path
+- `path` for surface-only transport;
+- `volpath` for the qualified general surface + participating-media path.
 
-Stress / differential backend:
+Differential/stress backend:
 
-- `bdpt` for difficult specular transport and caustic-oriented cases where applicable
+- `bdpt` **only for vacuum/surface specular and caustic stress cases**.
 
-MLT is not required to qualify the first release and should not be used as the sole reference for any scene.
+PBRT has unresolved upstream reports of BDPT disagreement in participating media; therefore BDPT media results do not receive reference status in this release. MLT is explicitly out of scope and must never be the sole oracle.
 
 ### Platform
 
-- CPU renderer only
-- f32 is the production reference build
-- f64 (`PBRT_FLOAT_AS_DOUBLE=ON`) is a diagnostic/meta-oracle build used to expose numerical precision regressions
+- CPU renderer only;
+- f32 is the production reference build;
+- f64 (`PBRT_FLOAT_AS_DOUBLE=ON`) is a numerical/meta-oracle build.
 
 GPU/CUDA/OptiX behavior is outside the release claim.
 
-## 3. Explicit exclusions
+## 2. Explicit exclusions
 
 The first GI Oracle Qualified release does **not** claim qualification of:
 
-- GPU rendering paths
-- hair/curve transport
-- subsurface scattering
-- measured BSDFs
-- every spectral material preset
-- exotic cameras/lenses
-- all heterogeneous media models
-- every light sampler or accelerator combination
-- PBRT utility programs unrelated to the qualification pipeline
+- GPU rendering paths;
+- hair/curve transport;
+- subsurface scattering;
+- measured BSDFs;
+- every spectral material preset;
+- exotic cameras/lenses;
+- heterogeneous media;
+- BDPT in participating media;
+- MLT;
+- every light sampler or accelerator combination;
+- PBRT utilities unrelated to the qualification pipeline.
 
 An excluded subsystem may be used experimentally, but its output must not silently acquire reference status.
 
-## 4. Intentional semantic deviations from upstream
+## 3. Source-hardening policy
 
-### Perceptual roughness
+The fork should keep renderer-source divergence from upstream small. A source correction is justified only when it removes undefined/non-finite behavior, preserves the configured `Float` precision, or fixes a transport/numerical defect demonstrated by an invariant or analytic test.
 
-The fork uses `alpha = roughness^2` for the engine-facing perceptual roughness mapping. Upstream historically retained `sqrt(roughness)` for compatibility with existing scene appearance despite documenting that it was not the desired perceptual mapping. A reference renderer must choose defined semantics over compatibility with scenes authored around that behavior.
+Scene-language or artist-parameter conventions should normally be canonicalized in the `OracleScene` adapter instead of globally redefining PBRT defaults.
 
-### Numerical hardening
+Every source correction requires an analytic/invariant regression and a dedicated auditable commit.
 
-Reference-only corrections should be accepted when they remove undefined/NaN behavior, preserve the configured `Float` precision, or make failed numerical operations deterministic without changing the intended transport equation.
+## 4. Mandatory qualification gates
 
-Every such correction requires an analytic or invariant test and a dedicated commit.
+### A. Analytic / algebraic
 
-## 5. Mandatory qualification gates
+- dielectric Fresnel vs closed form over both interface orientations;
+- normal-incidence reflectance;
+- critical angle and TIR;
+- smooth dielectric branch probabilities;
+- smooth dielectric importance white-furnace throughput;
+- radiance-transport eta Jacobian;
+- rough dielectric `Sample_f` / evaluator / PDF consistency with precision-aware bounds;
+- rough dielectric reflection reciprocity;
+- passive-material energy upper bounds;
+- diffuse cosine-sampling estimator identity;
+- directed floating-point boundary tests used by PBRT ray robustness.
 
-A release commit must satisfy all of the following on the exact SHA.
+### B. Existing PBRT statistical regressions
 
-### A. Analytic / algebraic gates
+- relevant `BSDFSampling.*` tests;
+- relevant `BSDFEnergyConservation.*` tests.
 
-- dielectric Fresnel vs closed form over both interface orientations
-- normal-incidence reflectance
-- critical-angle and total-internal-reflection behavior
-- smooth dielectric branch probabilities
-- smooth dielectric sample throughput in an importance white furnace
-- radiance-transport eta Jacobian
-- rough dielectric `Sample_f` / evaluator / PDF consistency with precision-appropriate tolerances
-- rough dielectric reflection reciprocity
-- passive-material energy upper bounds
-- diffuse cosine-sampling estimator identity
-- directed floating-point boundary tests used by PBRT ray robustness
-
-### B. Existing PBRT statistical gates
-
-- the relevant `BSDFSampling.*` tests
-- the relevant `BSDFEnergyConservation.*` tests
-
-These are necessary but are not accepted as a substitute for the independent analytic gates above.
+These are necessary but are not substitutes for independent analytic gates.
 
 ### C. End-to-end rendered transport canaries
 
-The executable renderer must render tiny deterministic scenes that exercise parser → material construction → BSDF → visibility → lighting → integrator → film. The first release must include at least:
+The exact executable must exercise parser -> material/media construction -> visibility -> lighting -> integrator -> film and pass at least:
 
-1. diffuse + uniform environment proportionality canary;
-2. dielectric/conductor finite-value and bounded-energy canary;
-3. `path` vs `volpath` vacuum differential canary;
-4. homogeneous-medium attenuation canary;
-5. a small specular/caustic stress scene rendered by the primary and differential integrators.
+1. Lambertian sphere under uniform environment: `L_o/L_env = rho` within sampling/film tolerance;
+2. rough dielectric + conductor passive furnace finiteness/boundedness;
+3. `path` vs `volpath` vacuum differential;
+4. homogeneous absorption against Beer-Lambert attenuation;
+5. vacuum specular/caustic smoke through `path` and `bdpt`.
 
-Rendered canaries are measured numerically from linear EXR/PFM output. Denoising, display tonemapping and sample clamping must not participate in oracle measurements.
+Canaries use linear EXR/PFM measurements. Denoising, display tonemapping and sample clamping do not participate.
 
 ### D. Voxel-world canaries
 
-Before promotion from release candidate to project reference release:
+Before promotion from RC to project reference release:
 
 - at least four representative voxel levels are independently surface-extracted;
 - at least two cameras per level are rendered;
-- a minimum 32 spp smoke set completes without NaN/Inf or broken geometry;
-- representative views receive higher-spp convergence renders or multiple independent seeds;
-- the scene/material/environment adapter hashes are recorded.
+- a minimum 32 spp smoke set completes without NaN/Inf, broken geometry, or material-boundary errors;
+- representative views receive higher-spp and/or multi-seed convergence renders;
+- source world, adapter, material, scene, environment, and binary hashes are recorded;
+- transmissive/medium boundary winding and manifold diagnostics pass.
 
-The 32 spp set is a bring-up/canary dataset, not itself statistical ground truth.
+**32 spp is a bring-up/canary dataset, not statistical ground truth.**
 
-## 6. Precision policy
+## 5. Precision policy
 
 The f64 lane is a meta-oracle for numerical conditioning, not a replacement for the f32 production build.
 
-For identities that should be algebraically exact, f64 should converge to a substantially tighter residual than f32. For sample/evaluator comparisons involving direction reconstruction in f32, tolerances may be conditioning-aware, but they must be justified by an f64 comparison and must not mask PDF disagreement, non-finite values, reciprocity errors or energy creation.
+For identities that should be algebraically exact, f64 should converge substantially tighter than f32. Sample/evaluator comparisons that reconstruct a microfacet normal from a rounded f32 output direction may use a conditioning-aware bound only when:
 
-Any test tolerance relaxation requires a comment explaining the numerical mechanism and a bound based on observed f32/f64 behavior.
+- the corresponding f64 check is substantially tighter;
+- PDF consistency remains independently strict;
+- reciprocity, finiteness and passive-energy gates remain strict;
+- the numerical mechanism and observed bound are documented.
 
-## 7. Reproducibility / provenance contract
+## 6. Reproducibility / provenance
 
-Every reference render or released binary must record at least:
+Every reference render or released binary records at least:
 
-- repository and exact commit SHA
-- submodule SHAs
-- compiler identity/version
-- build type and CMake options
-- f32/f64 mode
-- `pbrt --version`
-- SHA-256 of `pbrt` and `imgtool`
-- OS/architecture
-- scene and include-file SHA-256
-- environment map SHA-256
-- integrator and all non-default integrator parameters
-- sampler, seed and spp
-- maximum depth / Russian-roulette-relevant settings
-- film resolution and output format
-- oracle adapter version/hash
+- repository and exact commit SHA;
+- recursive submodule SHAs;
+- compiler identity/version;
+- build type and CMake options;
+- f32/f64 mode;
+- binary SHA-256 hashes;
+- OS/architecture;
+- scene/include SHA-256;
+- environment map SHA-256;
+- integrator and non-default parameters;
+- sampler, seed and spp;
+- maximum depth and other termination controls;
+- film resolution/output format;
+- oracle adapter version/hash;
+- source voxel-world fingerprint/hash where available;
+- geometry validation/orientation diagnostics.
 
-Reference artifacts should be immutable and addressed by these hashes rather than by a mutable branch name.
+Reference artifacts are immutable and addressed by hashes/SHA, not by a mutable branch name.
 
-## 8. Release states
+## 7. Release states
 
 ### Qualification branch
 
-Development state. Individual tests may fail while a defect is being isolated.
+Development state. Individual gates may fail while a defect is isolated.
 
 ### Release candidate (RC)
 
-Requires A + B + C green on the exact SHA, a sealed f32 binary manifest, and no known correctness blocker in the qualified surface. Voxel-world canaries may still be incomplete, but that limitation must be stated.
+Requires A + B + C green on the **same exact SHA**, a sealed f32 binary manifest, and no known correctness blocker in the qualified surface. Voxel-world gate D may remain incomplete, but that limitation must be stated.
 
-### GI Oracle Qualified release
+### GI Oracle Qualified
 
 Requires RC gates plus D, reviewed provenance manifests, and no unresolved high-severity issue affecting the qualified surface.
 
-A known issue outside §2 does not block release. A known issue inside §2 does.
+A known issue outside the qualified surface does not block release. A known issue inside it does.
+
+## 8. Upstream issue classification relevant to this fork
+
+### mmp/pbrt-v4#479 — roughness remapping
+
+Upstream acknowledges that `alpha = roughness^2` is the intended perceptually linear convention but retains the old default mapping to avoid changing existing scene appearance. For this oracle that is an **adapter semantic**, not a transport-source blocker: generated reference scenes pass canonical alpha directly with `remaproughness=false`.
+
+### mmp/pbrt-v4#547 — apparently over-reflective dielectric cube
+
+The posted minimal cube has inward-facing triangle winding. With an external camera this reverses the apparent side of the dielectric interface, so sufficiently oblique rays are evaluated as glass->air and correctly undergo TIR above the critical angle. The release consequence is a strict outward-winding/interface-orientation invariant in the adapter, not a compensating Fresnel hack in PBRT.
+
+### BDPT/MLT participating-media reports
+
+Open upstream disagreement/convergence reports are the reason BDPT participating-media and MLT results are excluded from reference status. `volpath` remains the qualified participating-media backend.
 
 ## 9. Operational recommendation
 
-Consumers should invoke the renderer as a hermetic process behind a canonical `OracleScene` adapter instead of linking application transport code deeply into PBRT. That architecture keeps geometry/material/environment normalization explicit, allows a second renderer to be added for differential checks, and reduces correlated bugs with the real-time GI implementation.
+Invoke PBRT as a hermetic process behind a renderer-independent canonical `OracleScene` adapter rather than deeply linking application transport code into PBRT. This keeps geometry/material/environment normalization explicit, reduces correlated DUT/oracle bugs, and permits independent differential renderers later.
