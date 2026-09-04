@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   transport-canaries:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - name: Checkout fork
@@ -29,8 +29,15 @@ jobs:
           repository: mmp/rgb2spectrum
           path: build
 
-      - name: Get CMake
-        uses: lukka/get-cmake@latest
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libopenexr-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev \
+            libxi-dev libxext-dev libxfixes-dev libgl1-mesa-dev \
+            libwayland-bin libwayland-dev wayland-protocols \
+            libxkbcommon-dev libxkbcommon-x11-0
 
       - name: Configure CPU reference build
         shell: bash
@@ -60,17 +67,22 @@ jobs:
         run: |
           set -euo pipefail
           {
+            echo 'schema=2'
             echo "repository=${GITHUB_REPOSITORY}"
             echo "commit=${GITHUB_SHA}"
+            echo 'qualification_surface=GI_ORACLE_RENDER_CANARIES'
             echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
             echo "compiler=$(c++ --version | head -1 || true)"
-            ./build/pbrt --version || true
-            echo "submodules:"
+            echo "cmake=$(cmake --version | head -1 || true)"
+            echo 'submodules_begin'
             git submodule status --recursive
-            echo "binaries:"
-            shasum -a 256 build/pbrt build/imgtool
-            echo "oracle-script:"
-            shasum -a 256 oracle/render_canaries.py
+            echo 'submodules_end'
+            echo 'binaries_begin'
+            sha256sum build/pbrt build/imgtool
+            echo 'binaries_end'
+            echo 'oracle_sources_begin'
+            sha256sum oracle/render_canaries.py oracle/REFERENCE_RELEASE.md .github/workflows/reference-render-canaries.yml
+            echo 'oracle_sources_end'
           } > reference-canaries/provenance.txt
 
       - name: Upload transport canary artifacts
