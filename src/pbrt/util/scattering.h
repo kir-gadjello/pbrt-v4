@@ -188,13 +188,13 @@ class TrowbridgeReitzDistribution {
 
     std::string ToString() const;
 
-    // Note that this should probably instead be "return Sqr(roughness)" to
-    // be more perceptually uniform, though this wasn't noticed until some
-    // time after pbrt-v4 shipped: https://github.com/mmp/pbrt-v4/issues/479.
-    // therefore, we will leave it as is so that the rendered results with
-    // existing pbrt-v4 scenes doesn't change unexpectedly.
+    // Reference-hardening fork: use the standard perceptual PBR mapping
+    // alpha = roughness^2. Upstream kept sqrt(roughness) only for historical
+    // image compatibility after acknowledging it as incorrect (mmp/pbrt-v4#479).
+    // A qualification renderer must prefer defined material semantics over
+    // compatibility with scenes authored around the old bug.
     PBRT_CPU_GPU
-    static Float RoughnessToAlpha(Float roughness) { return std::sqrt(roughness); }
+    static Float RoughnessToAlpha(Float roughness) { return Sqr(roughness); }
 
     PBRT_CPU_GPU
     void Regularize() {
