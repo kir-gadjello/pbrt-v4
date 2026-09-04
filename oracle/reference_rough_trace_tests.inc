@@ -5,7 +5,17 @@
 // DielectricBxDF::Sample_f() makes failures observable instead of CHECK-aborting.
 
 namespace {
-PBRT_CPU_GPU Float ReferenceRoughTraceFract(Float x) { return x - std::floor(x); }
+PBRT_CPU_GPU Float ReferenceRoughTraceFract(Float x) {
+    // Keep deterministic quasi-random stress samples within the sampler's
+    // documented [0,1) domain even when fast-math/excess precision evaluates
+    // x - floor(x) on opposite sides of a rounded integer boundary.
+    Float f = x - std::floor(x);
+    if (f < 0)
+        f += 1;
+    if (f >= 1)
+        f -= 1;
+    return f;
+}
 }
 
 TEST(ReferenceRoughTrace, TransmissionPdfAlgebraIsFinite) {
