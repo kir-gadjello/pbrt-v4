@@ -25,7 +25,19 @@ double OracleFresnelDielectric(double cosThetaI, double eta) {
     return 0.5 * (rs * rs + rp * rp);
 }
 
-Float OracleFract(Float x) { return x - std::floor(x); }
+// Fast-math/excess-precision optimization can inline x - floor(x) so that the
+// subtraction sees an unrounded multiply while floor() sees the rounded Float.
+// Around integer boundaries that produced a small negative number (for example
+// -1.62e-4) and fed an invalid sample to the VNDF. Wrap once more so this test
+// helper honors the same [0,1) contract as a real PBRT sampler.
+Float OracleFract(Float x) {
+    Float f = x - std::floor(x);
+    if (f < 0)
+        f += 1;
+    if (f >= 1)
+        f -= 1;
+    return f;
+}
 
 }  // namespace
 
