@@ -20,7 +20,10 @@ TEST(ReferenceOracleFloat, DirectedRoundingAtLargeScale) {
         }
     }
 #else
-    GTEST_SKIP() << "PBRT_FLOAT_AS_DOUBLE is disabled in this build";
+    // PBRT vendors a pre-GTEST_SKIP GoogleTest. The f32 lane still executes
+    // NextDoubleMatchesStandardLibrary below; large-scale directed rounding is
+    // intentionally exercised only by the PBRT_FLOAT_AS_DOUBLE lane.
+    return;
 #endif
 }
 
