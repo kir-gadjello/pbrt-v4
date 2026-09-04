@@ -1,0 +1,1 @@
+This commit exists only to preserve the voxel-adapter draft before the qualification branch ref is restored to its frozen RC candidate SHA. It is intended to be retained on a separate staging branch.
