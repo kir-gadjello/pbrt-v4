@@ -41,6 +41,7 @@ jobs:
 
       - name: Inject analytic reference tests
         run: |
+          cat oracle/reference_rough_trace_tests.inc >> src/pbrt/bsdfs_test.cpp
           cat oracle/reference_bsdf_tests.inc >> src/pbrt/bsdfs_test.cpp
           cat oracle/reference_float_tests.inc >> src/pbrt/util/float_test.cpp
 
@@ -59,8 +60,16 @@ jobs:
         run: |
           set -euo pipefail
           ./build/pbrt_test --list-tests | tee all-tests.log
+          grep -q 'ReferenceRoughTrace[.]' all-tests.log
           grep -q 'ReferenceOracle[.]' all-tests.log
           grep -q 'ReferenceOracleFloat[.]' all-tests.log
+
+      - name: Run rough dielectric algebra trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build/pbrt_test --test-filter 'ReferenceRoughTrace.*' 2>&1 | tee rough-trace.log
+          grep -Eq 'Running [1-9][0-9]* tests?' rough-trace.log
 
       - name: Run analytic reference oracles
         shell: bash
@@ -109,6 +118,7 @@ jobs:
           name: reference-oracle-f32-logs
           path: |
             all-tests.log
+            rough-trace.log
             reference-oracle.log
             bsdf-regression.log
           if-no-files-found: ignore
@@ -141,6 +151,7 @@ jobs:
 
       - name: Inject analytic reference tests
         run: |
+          cat oracle/reference_rough_trace_tests.inc >> src/pbrt/bsdfs_test.cpp
           cat oracle/reference_bsdf_tests.inc >> src/pbrt/bsdfs_test.cpp
           cat oracle/reference_float_tests.inc >> src/pbrt/util/float_test.cpp
 
@@ -154,6 +165,13 @@ jobs:
 
       - name: Build test binary
         run: cmake --build build --parallel 3 --target pbrt_test
+
+      - name: Run f64 rough dielectric algebra trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build/pbrt_test --test-filter 'ReferenceRoughTrace.*' 2>&1 | tee rough-trace-f64.log
+          grep -Eq 'Running [1-9][0-9]* tests?' rough-trace-f64.log
 
       - name: Run f64 analytic reference oracles
         shell: bash
@@ -175,6 +193,7 @@ jobs:
         with:
           name: reference-oracle-f64-logs
           path: |
+            rough-trace-f64.log
             reference-oracle-f64.log
             bsdf-regression-f64.log
           if-no-files-found: ignore
