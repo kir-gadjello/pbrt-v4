@@ -1,0 +1,48 @@
+name: vpt-runtime-bridge
+
+on:
+  push:
+    branches:
+      - oracle/vpt-runtime-bridge-2026-09-04
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drjit-1-5-0-cp313:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Download exact Dr.Jit wheel from PyPI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip download --no-deps --only-binary=:all: --dest wheel drjit==1.5.0
+          test "$(find wheel -maxdepth 1 -name 'drjit-1.5.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl' | wc -l)" -eq 1
+          WHEEL="wheel/drjit-1.5.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+          echo '33a4b146cc56a02ea0dd9c43034277c59ae3c5dd3490678c2cbc8ef69a1e8c93  '"$WHEEL" | sha256sum -c -
+          sha256sum "$WHEEL" > drjit-wheel.sha256
+          python -m zipfile -e "$WHEEL" drjit_runtime
+          find drjit_runtime -maxdepth 3 -type f -printf '%p\n' | sort > drjit-files.txt
+          ldd drjit_runtime/drjit/libdrjit-core.so > drjit-core.ldd.txt || true
+          ldd drjit_runtime/drjit/libdrjit-extra.so > drjit-extra.ldd.txt || true
+          ldd drjit_runtime/drjit/libnanothread.so > nanothread.ldd.txt || true
+
+      - name: Upload exact Dr.Jit runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: drjit-1.5.0-cp313-exact-runtime
+          path: |
+            wheel/*.whl
+            drjit_runtime/
+            drjit-wheel.sha256
+            drjit-files.txt
+            *.ldd.txt
+          if-no-files-found: error
+          retention-days: 7
