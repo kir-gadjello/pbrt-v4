@@ -124,7 +124,7 @@ TEST(ReferenceOracle, InternalTotalReflectionSamplesReflectionOnly) {
 
 TEST(ReferenceOracle, DiffuseSampleEstimatorMatchesAlbedoExactly) {
     for (Float rho : {.02f, .18f, .5f, .9f, 1.f}) {
-        DiffuseBxDF bxdf(SampledSpectrum(rho));
+        DiffuseBxDF bxdf{SampledSpectrum(rho)};
         Vector3f wo(0, 0, 1);
         for (Point2f u : {Point2f(.01f, .03f), Point2f(.2f, .8f),
                           Point2f(.51f, .49f), Point2f(.99f, .7f)}) {
