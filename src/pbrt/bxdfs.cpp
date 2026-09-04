@@ -176,7 +176,7 @@ PBRT_CPU_GPU SampledSpectrum DielectricBxDF::f(Vector3f wo, Vector3f wi, Transpo
     // Compute generalized half vector _wm_
     Float cosTheta_o = CosTheta(wo), cosTheta_i = CosTheta(wi);
     bool reflect = cosTheta_i * cosTheta_o > 0;
-    float etap = 1;
+    Float etap = 1;
     if (!reflect)
         etap = cosTheta_o > 0 ? eta : (1 / eta);
     Vector3f wm = wi * etap + wo;
@@ -216,7 +216,7 @@ PBRT_CPU_GPU Float DielectricBxDF::PDF(Vector3f wo, Vector3f wi, TransportMode m
     // Compute generalized half vector _wm_
     Float cosTheta_o = CosTheta(wo), cosTheta_i = CosTheta(wi);
     bool reflect = cosTheta_i * cosTheta_o > 0;
-    float etap = 1;
+    Float etap = 1;
     if (!reflect)
         etap = cosTheta_o > 0 ? eta : (1 / eta);
     Vector3f wm = wi * etap + wo;
