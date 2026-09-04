@@ -1,0 +1,126 @@
+name: vpt-wgpu-runtime
+
+on:
+  push:
+    branches:
+      - oracle/vpt-runtime-bridge-2026-09-04
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rtc3-vulkan-lavapipe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      VPT_PAYLOAD_SHA256: 572163a8e89b589ce4223315010b6d4530f06c0d2c1104fe16a38498907f32ba
+      VPT_ORACLE_SPP: '128'
+      VPT_ORACLE_SEED: '1369903142'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Rust and Vulkan software device
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools xz-utils
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.97.1
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          vulkaninfo --summary | tee vulkaninfo.txt
+
+      - name: Recover exact VPT source snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d oracle/vpt_ci_payload.tar.xz.b64 > /tmp/vpt_ci_payload.tar.xz
+          echo "$VPT_PAYLOAD_SHA256  /tmp/vpt_ci_payload.tar.xz" | sha256sum -c -
+          mkdir vpt
+          tar -xJf /tmp/vpt_ci_payload.tar.xz -C vpt
+          printf '%s  %s\n' "$VPT_PAYLOAD_SHA256" vpt_ci_payload.tar.xz > vpt/payload.sha256
+
+      - name: Synthesize inert canonical-atlas ABI payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p vpt/assets
+          python3 - <<'PY'
+          import gzip, struct
+          from pathlib import Path
+          size=256; layers=16; levels=size.bit_length()
+          h=b'MVMA6\0\0\0'+struct.pack('<III',size,layers,levels)
+          h+=b'b463cef68d6464e3ee2568e8416d9f0651ca337397c18aa43acbb5232c76d262'
+          out=bytearray(h)
+          w=size
+          for _ in range(levels):
+              n=w*w*layers
+              # Unused by qualification fixtures (AUTHORED_MATERIAL_ONLY + custom ids),
+              # but valid RGBA8 base/detail mip payloads are required by scene upload.
+              out.extend(bytes((255,255,255,255))*n)
+              out.extend(bytes((128,128,0,255))*n)
+              w=max(1,w//2)
+          p=Path('vpt/assets/material_atlas_v6.bin.gz')
+          with gzip.open(p,'wb',compresslevel=9,mtime=0) as f: f.write(out)
+          print('atlas raw bytes',len(out),'gzip bytes',p.stat().st_size)
+          PY
+          sha256sum vpt/assets/material_atlas_v6.bin.gz | tee vpt/atlas.sha256
+
+      - name: Build locked VPT RTC3
+        working-directory: vpt
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --version | tee rust-version.txt
+          cargo --version | tee cargo-version.txt
+          cargo build --release --locked --example oracle_runtime_qual 2>&1 | tee cargo-build.log
+
+      - name: Execute real wgpu path tracer on Lavapipe
+        working-directory: vpt
+        shell: bash
+        env:
+          WGPU_BACKEND: vulkan
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          RUST_BACKTRACE: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p oracle-output
+          ./target/release/examples/oracle_runtime_qual oracle-output 2>&1 | tee oracle-runtime.log
+          find oracle-output -maxdepth 1 -type f -printf '%f %s bytes\n' | sort | tee oracle-output-files.txt
+          sha256sum oracle-output/* | sort > oracle-output.sha256
+
+      - name: Seal runtime evidence
+        working-directory: vpt
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum target/release/examples/oracle_runtime_qual > oracle-binary.sha256
+          ldd target/release/examples/oracle_runtime_qual > oracle-binary.ldd.txt
+          {
+            echo "vpt_payload_sha256=$VPT_PAYLOAD_SHA256"
+            echo "reference_transport_contract=3"
+            echo "backend=vulkan-lavapipe"
+            cat rust-version.txt
+            cat cargo-version.txt
+          } > runtime-manifest.txt
+
+      - name: Upload VPT runtime qualification
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpt-rtc3-vulkan-lavapipe-runtime
+          path: |
+            vpt/oracle-output/
+            vpt/oracle-runtime.log
+            vpt/oracle-output-files.txt
+            vpt/oracle-output.sha256
+            vpt/oracle-binary.sha256
+            vpt/oracle-binary.ldd.txt
+            vpt/runtime-manifest.txt
+            vpt/rust-version.txt
+            vpt/cargo-version.txt
+            vpt/atlas.sha256
+            vulkaninfo.txt
+          if-no-files-found: error
+          retention-days: 7
