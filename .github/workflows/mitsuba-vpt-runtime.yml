@@ -1,0 +1,98 @@
+name: mitsuba-vpt-runtime
+
+on:
+  push:
+    branches:
+      - oracle/vpt-runtime-bridge-2026-09-04
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mitsuba-3-9-1-llvm-rgb:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      MITSUBA_WHEEL_SHA256: 8959e8de33427cf4d9b515a52d741dca7624e7c17094c5849f123a96504ca123
+      DRJIT_WHEEL_SHA256: 33a4b146cc56a02ea0dd9c43034277c59ae3c5dd3490678c2cbc8ef69a1e8c93
+      MITSUBA_ORACLE_SPP: '256'
+      MITSUBA_ORACLE_SEED: '1369903142'
+      MITSUBA_ORACLE_OUT: mitsuba-oracle-output
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Download and cryptographically pin exact renderer wheels
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir wheel
+          python -m pip download --no-deps --only-binary=:all: --dest wheel mitsuba==3.9.1 drjit==1.5.0
+          MI=$(find wheel -maxdepth 1 -name 'mitsuba-3.9.1-cp313-cp313-manylinux_2_28_x86_64.whl' -print -quit)
+          DR=$(find wheel -maxdepth 1 -name 'drjit-1.5.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl' -print -quit)
+          test -n "$MI" && test -n "$DR"
+          echo "$MITSUBA_WHEEL_SHA256  $MI" | sha256sum -c -
+          echo "$DRJIT_WHEEL_SHA256  $DR" | sha256sum -c -
+          printf 'mitsuba_wheel=%s\ndrjit_wheel=%s\n' "$MI" "$DR" > wheel-paths.env
+          sha256sum "$MI" "$DR" > renderer-wheels.sha256
+
+      - name: Install exact Mitsuba runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          source wheel-paths.env
+          python -m pip install "$drjit_wheel" "$mitsuba_wheel"
+          python - <<'PY' | tee mitsuba-runtime-info.txt
+          import mitsuba as mi
+          import drjit as dr
+          print('mitsuba', getattr(mi, '__version__', 'unknown'))
+          print('drjit', getattr(dr, '__version__', 'unknown'))
+          print('variants', mi.variants())
+          PY
+          python -m pip freeze | sort > pip-freeze.txt
+
+      - name: Execute real Mitsuba path tracer on matched VPT fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          python oracle/mitsuba_vpt_runtime_qual.py 2>&1 | tee mitsuba-oracle.log
+          find "$MITSUBA_ORACLE_OUT" -maxdepth 1 -type f -printf '%f %s bytes\n' | sort | tee mitsuba-oracle-files.txt
+          sha256sum "$MITSUBA_ORACLE_OUT"/* | sort > mitsuba-oracle-output.sha256
+
+      - name: Seal provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo 'mitsuba_release=3.9.1'
+            echo 'mitsuba_source_commit=478e193a183c21723f4a8251afc3ad29a8da4c5e'
+            echo 'drjit_release=1.5.0'
+            echo 'drjit_source_commit=671cbb25244be8a9731ac7b0e40e60ff122b8f8d'
+            echo "mitsuba_wheel_sha256=$MITSUBA_WHEEL_SHA256"
+            echo "drjit_wheel_sha256=$DRJIT_WHEEL_SHA256"
+            echo "spp=$MITSUBA_ORACLE_SPP"
+            echo "seed=$MITSUBA_ORACLE_SEED"
+          } > mitsuba-runtime-provenance.txt
+
+      - name: Upload real Mitsuba qualification radiance
+        uses: actions/upload-artifact@v4
+        with:
+          name: mitsuba-3.9.1-vpt-matched-runtime
+          path: |
+            mitsuba-oracle-output/
+            mitsuba-oracle.log
+            mitsuba-oracle-files.txt
+            mitsuba-oracle-output.sha256
+            mitsuba-runtime-info.txt
+            mitsuba-runtime-provenance.txt
+            renderer-wheels.sha256
+            pip-freeze.txt
+          if-no-files-found: error
+          retention-days: 7
