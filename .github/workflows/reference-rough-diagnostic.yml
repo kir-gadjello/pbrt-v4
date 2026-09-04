@@ -1,0 +1,103 @@
+name: reference-rough-dielectric-diagnostic
+
+on:
+  push:
+    branches:
+      - oracle/reference-hardening-2026-09-04
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reference-rough-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnose-f32:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Checkout pregenerated RGB-to-spectrum tables
+        uses: actions/checkout@v5
+        with:
+          repository: mmp/rgb2spectrum
+          path: build
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libopenexr-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev \
+            libxi-dev libxext-dev libxfixes-dev libgl1-mesa-dev \
+            libwayland-bin libwayland-dev wayland-protocols \
+            libxkbcommon-dev libxkbcommon-x11-0
+
+      - name: Inject reference tests and diagnostic instrumentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat oracle/reference_bsdf_tests.inc >> src/pbrt/bsdfs_test.cpp
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/pbrt/bxdfs.cpp')
+          s = p.read_text()
+          if '#include <cstdio>' not in s:
+              s = s.replace('#include <unordered_map>', '#include <unordered_map>\n#include <cstdio>')
+          needle = '            CHECK(!IsNaN(pdf));'
+          if s.count(needle) != 1:
+              raise SystemExit(f'expected exactly one rough-transmission NaN check, found {s.count(needle)}')
+          replacement = r'''            if (IsNaN(pdf)) {
+                std::fprintf(stderr,
+                    "REFERENCE_ROUGH_NAN eta=%.9g etap=%.9g uc=%.9g u=(%.9g,%.9g) "
+                    "wo=(%.9g,%.9g,%.9g) wm=(%.9g,%.9g,%.9g) wi=(%.9g,%.9g,%.9g) "
+                    "R=%.9g T=%.9g pr=%.9g pt=%.9g denom=%.9g dwm_dwi=%.9g "
+                    "mf_pdf=%.9g absdot_i_m=%.9g dot_o_m=%.9g\\n",
+                    double(eta), double(etap), double(uc), double(u.x), double(u.y),
+                    double(wo.x), double(wo.y), double(wo.z),
+                    double(wm.x), double(wm.y), double(wm.z),
+                    double(wi.x), double(wi.y), double(wi.z),
+                    double(R), double(T), double(pr), double(pt), double(denom),
+                    double(dwm_dwi), double(mfDistrib.PDF(wo, wm)),
+                    double(AbsDot(wi, wm)), double(Dot(wo, wm)));
+                return {};
+            }'''
+          p.write_text(s.replace(needle, replacement))
+          PY
+
+      - name: Configure diagnostic build
+        run: |
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES=True
+
+      - name: Build diagnostic test binary
+        run: cmake --build build --parallel 3 --target pbrt_test
+
+      - name: Run rough dielectric white-furnace trace
+        shell: bash
+        run: |
+          set -o pipefail
+          ./build/pbrt_test \
+            --test-filter 'ReferenceOracle.RoughDielectricImportanceWhiteFurnaceDoesNotCreateEnergy' \
+            2>&1 | tee rough-diagnostic.log
+          status=${PIPESTATUS[0]}
+          echo "diagnostic_test_exit=${status}" | tee -a rough-diagnostic.log
+          grep -n 'REFERENCE_ROUGH_NAN' rough-diagnostic.log || true
+          exit 0
+
+      - name: Upload diagnostic trace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rough-dielectric-diagnostic-${{ github.sha }}
+          path: rough-diagnostic.log
+          if-no-files-found: error
+          retention-days: 7
