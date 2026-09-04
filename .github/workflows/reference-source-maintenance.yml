@@ -1,0 +1,49 @@
+name: reference-source-maintenance
+
+on:
+  push:
+    branches:
+      - oracle/reference-hardening-2026-09-04
+    paths:
+      - .github/workflows/reference-source-maintenance.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-dielectric-float:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: oracle/reference-hardening-2026-09-04
+          fetch-depth: 0
+
+      - name: Apply guarded precision correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/pbrt/bxdfs.cpp')
+          s = p.read_text()
+          needle = '    float etap = 1;'
+          count = s.count(needle)
+          if count != 2:
+              raise SystemExit(f'expected exactly two rough dielectric float etap declarations, found {count}')
+          s = s.replace(needle, '    Float etap = 1;')
+          p.write_text(s)
+          PY
+          git diff --check
+          git diff -- src/pbrt/bxdfs.cpp
+
+      - name: Commit precision correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'reference-oracle-bot'
+          git config user.email 'reference-oracle-bot@users.noreply.github.com'
+          git add src/pbrt/bxdfs.cpp
+          git commit -m 'reference: preserve Float precision in dielectric IOR algebra'
+          git push origin HEAD:oracle/reference-hardening-2026-09-04
