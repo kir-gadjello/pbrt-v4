@@ -115,22 +115,28 @@ class TrowbridgeReitzDistribution {
         : alpha_x(ax), alpha_y(ay) {
         if (!EffectivelySmooth()) {
             // If one direction has some roughness, then the other can't
-            // have zero (or very low) roughness; the computation of |e| in
-            // D() blows up in that case.
+            // have zero (or very low) roughness; the anisotropic NDF still
+            // contains divisions by the directional alpha values.
             alpha_x = std::max<Float>(alpha_x, 1e-4f);
             alpha_y = std::max<Float>(alpha_y, 1e-4f);
         }
     }
 
     PBRT_CPU_GPU inline Float D(Vector3f wm) const {
-        Float tan2Theta = Tan2Theta(wm);
-        if (IsInf(tan2Theta))
-            return 0;
-        Float cos4Theta = Sqr(Cos2Theta(wm));
-        if (cos4Theta < 1e-16f)
-            return 0;
-        Float e = tan2Theta * (Sqr(CosPhi(wm) / alpha_x) + Sqr(SinPhi(wm) / alpha_y));
-        return 1 / (Pi * alpha_x * alpha_y * cos4Theta * Sqr(1 + e));
+        // Evaluate anisotropic GGX in an algebraically equivalent form that is
+        // well-conditioned at grazing microfacet normals. The traditional
+        // tan^2(theta) / cos^4(theta) expression becomes inf/inf near the
+        // horizon and previously forced D() to zero for cos^4(theta)<1e-16.
+        // Sample_wm() can legitimately generate normals in that region; that
+        // artificial zero can then multiply an unbounded transmission Jacobian
+        // and produce NaN PDFs. For unit wm:
+        //
+        //   cos^4(theta) (1 + e)^2
+        //     = (wm.z^2 + wm.x^2/alpha_x^2 + wm.y^2/alpha_y^2)^2.
+        //
+        // This form has no horizon singularity and preserves the GGX limit.
+        Float d = Sqr(wm.x / alpha_x) + Sqr(wm.y / alpha_y) + Sqr(wm.z);
+        return 1 / (Pi * alpha_x * alpha_y * Sqr(d));
     }
 
     PBRT_CPU_GPU
