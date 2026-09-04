@@ -25,6 +25,8 @@ double OracleFresnelDielectric(double cosThetaI, double eta) {
     return 0.5 * (rs * rs + rp * rp);
 }
 
+Float OracleFract(Float x) { return x - std::floor(x); }
+
 }  // namespace
 
 TEST(ReferenceOracle, FresnelDielectricMatchesClosedForm) {
@@ -102,6 +104,36 @@ TEST(ReferenceOracle, SmoothDielectricImportanceWhiteFurnaceIsUnitThroughput) {
     }
 }
 
+TEST(ReferenceOracle, SmoothDielectricRadianceTransmissionHasEtaJacobian) {
+    // In radiance transport PBRT uses the adjoint eta^2 factor for transmission.
+    // Reflection remains unit sample throughput. Test both entering and exiting
+    // interfaces to prevent a silent eta-orientation inversion.
+    for (Float eta : {1.1f, 1.333f, 1.5f, 2.f}) {
+        TrowbridgeReitzDistribution smooth(0, 0);
+        DielectricBxDF bxdf(eta, smooth);
+        for (Float cosTheta : {.95f, .7f, .4f, -.95f, -.8f}) {
+            Vector3f wo(SafeSqrt(1 - Sqr(cosTheta)), 0, cosTheta);
+            Float R = FrDielectric(cosTheta, eta);
+            if (R == 1)
+                continue;
+            // Force transmission by choosing uc strictly in the transmission range.
+            Float uc = R + (1 - R) * .5f;
+            auto bs = bxdf.Sample_f(wo, uc, Point2f(.31f, .67f),
+                                    TransportMode::Radiance,
+                                    BxDFReflTransFlags::All);
+            ASSERT_TRUE(bs.has_value());
+            ASSERT_TRUE(bs->IsTransmission());
+            ASSERT_GT(bs->pdf, 0);
+            SampledSpectrum w = bs->f * AbsCosTheta(bs->wi) / bs->pdf;
+            Float expected = 1 / Sqr(bs->eta);
+            for (int c = 0; c < NSpectrumSamples; ++c)
+                EXPECT_NEAR(w[c], expected, 4e-6f)
+                    << "eta=" << eta << " cosTheta=" << cosTheta
+                    << " sample_eta=" << bs->eta;
+        }
+    }
+}
+
 TEST(ReferenceOracle, InternalTotalReflectionSamplesReflectionOnly) {
     constexpr Float eta = 1.5f;
     TrowbridgeReitzDistribution smooth(0, 0);
@@ -119,6 +151,109 @@ TEST(ReferenceOracle, InternalTotalReflectionSamplesReflectionOnly) {
         EXPECT_TRUE(bs->IsReflection());
         EXPECT_FALSE(bs->IsTransmission());
         EXPECT_EQ(bs->pdf, 1);
+    }
+}
+
+TEST(ReferenceOracle, RoughDielectricSampleMatchesEvaluationAndPdf) {
+    // Target the rough branch implicated by dielectric-reflectivity regressions.
+    // A sampled direction must evaluate to the same f and density as the general
+    // f()/PDF() path, on either side of the interface.
+    for (Float eta : {1.1f, 1.333f, 1.5f, 2.f}) {
+        for (Float alpha : {.03f, .08f, .2f, .5f}) {
+            TrowbridgeReitzDistribution distrib(alpha, alpha * 1.37f);
+            DielectricBxDF bxdf(eta, distrib);
+            for (Float cosTheta : {.97f, .72f, .37f, -.93f, -.65f}) {
+                Vector3f wo(SafeSqrt(1 - Sqr(cosTheta)), 0, cosTheta);
+                int valid = 0;
+                for (int i = 1; i <= 4096; ++i) {
+                    Float uc = OracleFract(Float(i) * .7548776662466927f);
+                    Point2f u(OracleFract(Float(i) * .5698402909980532f),
+                              OracleFract(Float(i) * .4385790218125324f));
+                    auto bs = bxdf.Sample_f(wo, uc, u, TransportMode::Radiance,
+                                            BxDFReflTransFlags::All);
+                    if (!bs)
+                        continue;
+                    ++valid;
+                    ASSERT_GT(bs->pdf, 0);
+                    Float pdf = bxdf.PDF(wo, bs->wi, TransportMode::Radiance,
+                                         BxDFReflTransFlags::All);
+                    Float pdfTol = std::max(Float(2e-6), Float(4e-4) * std::abs(pdf));
+                    EXPECT_NEAR(bs->pdf, pdf, pdfTol)
+                        << "eta=" << eta << " alpha=" << alpha
+                        << " cosTheta=" << cosTheta << " i=" << i;
+                    SampledSpectrum f = bxdf.f(wo, bs->wi, TransportMode::Radiance);
+                    for (int c = 0; c < NSpectrumSamples; ++c) {
+                        Float fTol = std::max(Float(2e-6), Float(5e-4) * std::abs(f[c]));
+                        EXPECT_NEAR(bs->f[c], f[c], fTol)
+                            << "eta=" << eta << " alpha=" << alpha
+                            << " cosTheta=" << cosTheta << " i=" << i
+                            << " channel=" << c;
+                    }
+                }
+                EXPECT_GT(valid, 3000);
+            }
+        }
+    }
+}
+
+TEST(ReferenceOracle, RoughDielectricReflectionReciprocity) {
+    // Helmholtz reciprocity for reflection is unambiguous (no eta^2 transport
+    // convention is involved), making it a strong independent algebraic check.
+    for (Float eta : {1.1f, 1.333f, 1.5f, 2.f}) {
+        for (Float alpha : {.04f, .15f, .45f}) {
+            TrowbridgeReitzDistribution distrib(alpha, alpha * .73f);
+            DielectricBxDF bxdf(eta, distrib);
+            for (int i = 1; i <= 512; ++i) {
+                Float z0 = .08f + .91f * OracleFract(Float(i) * .61803398875f);
+                Float z1 = .08f + .91f * OracleFract(Float(i) * .41421356237f);
+                Float p0 = 2 * Pi * OracleFract(Float(i) * .73205080757f);
+                Float p1 = 2 * Pi * OracleFract(Float(i) * .23606797750f);
+                Vector3f wo(SafeSqrt(1 - Sqr(z0)) * std::cos(p0),
+                            SafeSqrt(1 - Sqr(z0)) * std::sin(p0), z0);
+                Vector3f wi(SafeSqrt(1 - Sqr(z1)) * std::cos(p1),
+                            SafeSqrt(1 - Sqr(z1)) * std::sin(p1), z1);
+                SampledSpectrum a = bxdf.f(wo, wi, TransportMode::Radiance);
+                SampledSpectrum b = bxdf.f(wi, wo, TransportMode::Radiance);
+                for (int c = 0; c < NSpectrumSamples; ++c) {
+                    Float tol = std::max(Float(3e-6), Float(3e-5) * std::max(a[c], b[c]));
+                    EXPECT_NEAR(a[c], b[c], tol)
+                        << "eta=" << eta << " alpha=" << alpha << " i=" << i;
+                }
+            }
+        }
+    }
+}
+
+TEST(ReferenceOracle, RoughDielectricImportanceWhiteFurnaceDoesNotCreateEnergy) {
+    // A single-scattering GGX dielectric may lose energy through masked multiple
+    // scattering, but a passive lossless interface must never create it.
+    for (Float eta : {1.1f, 1.333f, 1.5f, 2.f}) {
+        for (Float alpha : {.04f, .15f, .4f, .8f}) {
+            TrowbridgeReitzDistribution distrib(alpha, alpha);
+            DielectricBxDF bxdf(eta, distrib);
+            for (Float cosTheta : {.95f, .65f, .3f}) {
+                Vector3f wo(SafeSqrt(1 - Sqr(cosTheta)), 0, cosTheta);
+                double sum = 0;
+                constexpr int n = 65536;
+                for (int i = 1; i <= n; ++i) {
+                    Float uc = OracleFract(Float(i) * .7548776662466927f);
+                    Point2f u(OracleFract(Float(i) * .5698402909980532f),
+                              OracleFract(Float(i) * .4385790218125324f));
+                    auto bs = bxdf.Sample_f(wo, uc, u, TransportMode::Importance,
+                                            BxDFReflTransFlags::All);
+                    if (!bs)
+                        continue;
+                    sum += double(bs->f[0] * AbsCosTheta(bs->wi) / bs->pdf);
+                }
+                double energy = sum / n;
+                EXPECT_LE(energy, 1.004)
+                    << "eta=" << eta << " alpha=" << alpha
+                    << " cosTheta=" << cosTheta;
+                EXPECT_GT(energy, .15)
+                    << "pathological energy loss eta=" << eta << " alpha=" << alpha
+                    << " cosTheta=" << cosTheta;
+            }
+        }
     }
 }
 
