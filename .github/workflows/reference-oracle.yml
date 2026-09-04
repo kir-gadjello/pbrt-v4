@@ -86,18 +86,40 @@ jobs:
           ./build/pbrt_test --test-filter 'BSDFSampling.*:BSDFEnergyConservation.*' 2>&1 | tee bsdf-regression.log
           grep -Eq 'Running [1-9][0-9]* tests?' bsdf-regression.log
 
-      - name: Seal qualified build manifest
+      - name: Seal qualified f32 build manifest
         shell: bash
         run: |
           set -euo pipefail
           {
+            echo 'schema=2'
             echo "repository=${GITHUB_REPOSITORY}"
             echo "commit=${GITHUB_SHA}"
-            echo "float_mode=f32"
+            echo 'qualification_surface=GI_ORACLE_CPU_F32'
+            echo 'float_mode=f32'
             echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
+            echo "compiler=$(c++ --version | head -1)"
+            echo "cmake=$(cmake --version | head -1)"
+            echo 'pbrt_version_begin'
             ./build/pbrt --version || true
+            echo 'pbrt_version_end'
+            echo 'submodules_begin'
+            git submodule status --recursive
+            echo 'submodules_end'
+            echo 'cmake_contract_begin'
+            grep -E '^(CMAKE_BUILD_TYPE|CMAKE_CXX_COMPILER:|CMAKE_CXX_COMPILER_VERSION|PBRT_FLOAT_AS_DOUBLE|PBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES)' build/CMakeCache.txt || true
+            echo 'cmake_contract_end'
+            echo 'oracle_sources_begin'
+            sha256sum \
+              oracle/reference_bsdf_tests.inc \
+              oracle/reference_float_tests.inc \
+              oracle/reference_rough_trace_tests.inc \
+              oracle/REFERENCE_RELEASE.md \
+              .github/workflows/reference-oracle.yml
+            echo 'oracle_sources_end'
+            echo 'binaries_begin'
+            sha256sum build/pbrt build/imgtool build/pbrt_test
+            echo 'binaries_end'
           } > qualified-build.txt
-          sha256sum build/pbrt build/imgtool >> qualified-build.txt
           ldd build/pbrt > qualified-ldd.txt
 
       - name: Upload qualified CPU toolchain
@@ -110,7 +132,7 @@ jobs:
             qualified-build.txt
             qualified-ldd.txt
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
 
       - name: Upload qualification logs
         if: always()
@@ -123,6 +145,7 @@ jobs:
             reference-oracle.log
             bsdf-regression.log
           if-no-files-found: ignore
+          retention-days: 14
 
   analytic-f64:
     needs: analytic-f32
@@ -190,7 +213,39 @@ jobs:
           ./build/pbrt_test --test-filter 'BSDFSampling.*:BSDFEnergyConservation.*' 2>&1 | tee bsdf-regression-f64.log
           grep -Eq 'Running [1-9][0-9]* tests?' bsdf-regression-f64.log
 
-      - name: Upload f64 qualification logs
+      - name: Seal qualified f64 meta-oracle manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo 'schema=2'
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "commit=${GITHUB_SHA}"
+            echo 'qualification_surface=GI_ORACLE_CPU_F64_META'
+            echo 'float_mode=f64'
+            echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
+            echo "compiler=$(c++ --version | head -1)"
+            echo "cmake=$(cmake --version | head -1)"
+            echo 'submodules_begin'
+            git submodule status --recursive
+            echo 'submodules_end'
+            echo 'cmake_contract_begin'
+            grep -E '^(CMAKE_BUILD_TYPE|CMAKE_CXX_COMPILER:|CMAKE_CXX_COMPILER_VERSION|PBRT_FLOAT_AS_DOUBLE|PBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES)' build/CMakeCache.txt || true
+            echo 'cmake_contract_end'
+            echo 'oracle_sources_begin'
+            sha256sum \
+              oracle/reference_bsdf_tests.inc \
+              oracle/reference_float_tests.inc \
+              oracle/reference_rough_trace_tests.inc \
+              oracle/REFERENCE_RELEASE.md \
+              .github/workflows/reference-oracle.yml
+            echo 'oracle_sources_end'
+            echo 'binary_begin'
+            sha256sum build/pbrt_test
+            echo 'binary_end'
+          } > qualified-build-f64.txt
+
+      - name: Upload f64 qualification logs and manifest
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -199,4 +254,6 @@ jobs:
             rough-trace-f64.log
             reference-oracle-f64.log
             bsdf-regression-f64.log
+            qualified-build-f64.txt
           if-no-files-found: ignore
+          retention-days: 14
