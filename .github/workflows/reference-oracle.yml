@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  analytic-bsdf:
+  analytic-f32:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
@@ -36,7 +36,9 @@ jobs:
             libxkbcommon-dev libxkbcommon-x11-0
 
       - name: Inject analytic reference tests
-        run: cat oracle/reference_bsdf_tests.inc >> src/pbrt/bsdfs_test.cpp
+        run: |
+          cat oracle/reference_bsdf_tests.inc >> src/pbrt/bsdfs_test.cpp
+          cat oracle/reference_float_tests.inc >> src/pbrt/util/float_test.cpp
 
       - name: Configure CPU build
         run: |
@@ -54,12 +56,13 @@ jobs:
           set -euo pipefail
           ./build/pbrt_test --list-tests | tee all-tests.log
           grep -q 'ReferenceOracle[.]' all-tests.log
+          grep -q 'ReferenceOracleFloat[.]' all-tests.log
 
       - name: Run analytic reference oracles
         shell: bash
         run: |
           set -euo pipefail
-          ./build/pbrt_test --test-filter 'ReferenceOracle[.].*' 2>&1 | tee reference-oracle.log
+          ./build/pbrt_test --test-filter '(ReferenceOracle|ReferenceOracleFloat)[.].*' 2>&1 | tee reference-oracle.log
           grep -Eq 'Running [1-9][0-9]* tests?' reference-oracle.log
 
       - name: Run existing BSDF statistical regression suite
@@ -69,13 +72,104 @@ jobs:
           ./build/pbrt_test --test-filter '(BSDFSampling|BSDFEnergyConservation)[.].*' 2>&1 | tee bsdf-regression.log
           grep -Eq 'Running [1-9][0-9]* tests?' bsdf-regression.log
 
+      - name: Seal qualified build manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "commit=${GITHUB_SHA}"
+            echo "float_mode=f32"
+            echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
+            ./build/pbrt --version || true
+          } > qualified-build.txt
+          sha256sum build/pbrt build/imgtool >> qualified-build.txt
+          ldd build/pbrt > qualified-ldd.txt
+
+      - name: Upload qualified CPU toolchain
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualified-pbrt-f32-${{ github.sha }}
+          path: |
+            build/pbrt
+            build/imgtool
+            qualified-build.txt
+            qualified-ldd.txt
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload qualification logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: reference-oracle-analytic-logs
+          name: reference-oracle-f32-logs
           path: |
             all-tests.log
             reference-oracle.log
             bsdf-regression.log
+          if-no-files-found: ignore
+
+  analytic-f64:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Checkout pregenerated RGB-to-spectrum tables
+        uses: actions/checkout@v5
+        with:
+          repository: mmp/rgb2spectrum
+          path: build
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libopenexr-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev \
+            libxi-dev libxext-dev libxfixes-dev libgl1-mesa-dev \
+            libwayland-bin libwayland-dev wayland-protocols \
+            libxkbcommon-dev libxkbcommon-x11-0
+
+      - name: Inject analytic reference tests
+        run: |
+          cat oracle/reference_bsdf_tests.inc >> src/pbrt/bsdfs_test.cpp
+          cat oracle/reference_float_tests.inc >> src/pbrt/util/float_test.cpp
+
+      - name: Configure 64-bit Float build
+        run: |
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPBRT_FLOAT_AS_DOUBLE=ON \
+            -DPBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES=True
+
+      - name: Build test binary
+        run: cmake --build build --parallel 3 --target pbrt_test
+
+      - name: Run f64 analytic reference oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build/pbrt_test --test-filter '(ReferenceOracle|ReferenceOracleFloat)[.].*|FloatingPoint[.]NextUpDownDouble' 2>&1 | tee reference-oracle-f64.log
+          grep -Eq 'Running [1-9][0-9]* tests?' reference-oracle-f64.log
+
+      - name: Run f64 BSDF statistical regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build/pbrt_test --test-filter '(BSDFSampling|BSDFEnergyConservation)[.].*' 2>&1 | tee bsdf-regression-f64.log
+          grep -Eq 'Running [1-9][0-9]* tests?' bsdf-regression-f64.log
+
+      - name: Upload f64 qualification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reference-oracle-f64-logs
+          path: |
+            reference-oracle-f64.log
+            bsdf-regression-f64.log
           if-no-files-found: ignore
