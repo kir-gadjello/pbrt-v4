@@ -47,9 +47,12 @@ def env_irradiance_scene(name):
  s+='AttributeBegin Translate 200 0 0 Shape "sphere" "float radius" [1] AttributeEnd\n'
  return s
 def point_irradiance_scene(name):
+ # Receiver is the north pole of a unit sphere centered at z=-1. This avoids the
+ # polar-coordinate singularity at the center of PBRT's disk primitive. Point light
+ # is exactly two units from the surface, so E=I/r^2=1/4 at normal incidence.
  s=camera_block(name,True,[(0,0,0)],[(0,0,1)],[0],512,'irradiance','direct')
  s+='LightSource "point" "rgb I" [1 1 1] "point3 from" [0 0 2]\n'
- s+='Material "diffuse" "rgb reflectance" [0 0 0]\nShape "disk" "float radius" [10]\n'
+ s+='Material "diffuse" "rgb reflectance" [0 0 0]\nAttributeBegin Translate 0 0 -1 Shape "sphere" "float radius" [1] AttributeEnd\n'
  return s
 def cone_scene(name):
  s=camera_block(name,False,[(0,0,0)]*3,[(0,0,1),(1,0,0),(0,1,0)],[.01,.2,.9],256,'path')
