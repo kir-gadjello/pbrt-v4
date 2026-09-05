@@ -1,0 +1,85 @@
+name: rimo-reference-artifact
+
+on:
+  push:
+    branches:
+      - rimo/reference-converged-2026-09-04
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rimo-reference-artifact-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualified-linux-cpu:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Checkout pregenerated RGB-to-spectrum tables
+        uses: actions/checkout@v5
+        with:
+          repository: mmp/rgb2spectrum
+          path: build
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libopenexr-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev \
+            libxi-dev libxext-dev libxfixes-dev libgl1-mesa-dev \
+            libwayland-bin libwayland-dev wayland-protocols \
+            libxkbcommon-dev libxkbcommon-x11-0
+
+      - name: Configure f32 CPU reference
+        run: |
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DPBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES=True
+
+      - name: Build renderer, image tool and tests
+        run: cmake --build build --parallel 3 --target pbrt_exe imgtool pbrt_test
+
+      - name: Run PBRT unit tests
+        run: ./build/pbrt_test
+
+      - name: Run rendered transport canaries
+        run: |
+          python3 oracle/render_canaries.py --pbrt build/pbrt --imgtool build/imgtool --out rimo-artifact/transport --commit "$GITHUB_SHA"
+
+      - name: Run rendered irradiance canaries
+        run: |
+          python3 oracle/irradiance_canaries.py --pbrt build/pbrt --imgtool build/imgtool --out rimo-artifact/irradiance --commit "$GITHUB_SHA"
+
+      - name: Seal artifact
+        if: always()
+        run: |
+          mkdir -p rimo-artifact/bin
+          cp build/pbrt build/imgtool rimo-artifact/bin/ || true
+          {
+            echo 'schema=rimo.pbrt-artifact/1'
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "commit=${GITHUB_SHA}"
+            echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
+            echo "compiler=$(c++ --version | head -1 || true)"
+            echo "cmake=$(cmake --version | head -1 || true)"
+            git submodule status --recursive
+            sha256sum rimo-artifact/bin/pbrt rimo-artifact/bin/imgtool 2>/dev/null || true
+            sha256sum oracle/render_canaries.py oracle/irradiance_canaries.py oracle/REFERENCE_RELEASE.md
+          } > rimo-artifact/provenance.txt
+
+      - name: Upload sealed RIMO PBRT artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rimo-pbrt-linux-${{ github.sha }}
+          path: rimo-artifact/
+          if-no-files-found: error
+          retention-days: 14
