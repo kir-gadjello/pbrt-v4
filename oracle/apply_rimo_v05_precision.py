@@ -30,11 +30,11 @@ p.write_text(s)
 # sample budget instead of changing seeds or relaxing the failing bound.
 p=Path('src/pbrt/lightsamplers_test.cpp');s=p.read_text();a=s.index('TEST(BVHLightSampling, PointVaryPower)');b=s.index('\nTEST(',a+1)
 s=s[:a]+s[a:b].replace('nSamples = 100000;','nSamples = 1000000;')+s[b:];p.write_text(s)
-# Segment RGB values are D65-weighted spectral transmittance, not raw equal-energy
-# spectral radiance sent through the calibrated camera sensor.
+# Match PBRT's unit-white light and default calibrated film exactly; unlike raw
+# SampledSpectrum(1), this has neutral unit RGB expectation. No image-ratio estimate.
 p=Path('src/pbrt/cpu/integrators.cpp');s=p.read_text()
 s=once(s,'#include <algorithm>','#include <algorithm>\n#include <pbrt/util/colorspace.h>')
-s=once(s,'    Interaction p0(input.o, input.time, input.medium);','    SampledSpectrum white = RGBIlluminantSpectrum(*RGBColorSpace::sRGB, RGB(1,1,1)).Sample(lambda);\n    Interaction p0(input.o, input.time, input.medium);')
+s=once(s,'    Interaction p0(input.o, input.time, input.medium);','    SampledSpectrum white = RGBIlluminantSpectrum(*RGBColorSpace::sRGB, RGB(1,1,1)).Sample(lambda) / SpectrumToPhotometric(&RGBColorSpace::sRGB->illuminant);\n    Interaction p0(input.o, input.time, input.medium);')
 s=once(s,'if (LengthSquared(ray.d)==0) return SampledSpectrum(1);','if (LengthSquared(ray.d)==0) return white;')
 s=once(s,'        if (!hit) return tr;','        if (!hit) return tr * white;');p.write_text(s)
 print('RIMO precision and transmittance color-contract corrections installed')
