@@ -23,9 +23,9 @@ jobs:
           ref: b475eb4bf394ab877c42166c9eb0a84a02cc5b14
           path: flip
 
-      - name: Configure and build CPU FLIP CLI
+      - name: Configure and build standalone CPU FLIP CLI
         run: |
-          cmake -S flip -B flip/build -DCMAKE_BUILD_TYPE=Release -DFLIP_ENABLE_CUDA=OFF
+          cmake -S flip/src -B flip/build -DCMAKE_BUILD_TYPE=Release -DFLIP_ENABLE_CUDA=OFF
           cmake --build flip/build --parallel 3 --target flip-cli
 
       - name: Smoke LDR and HDR modes
