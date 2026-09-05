@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Deterministically install RIMO's CPU batched sensor camera into the pinned PBRT tree.
 
+Surface-irradiance mode only lands a camera ray on the declared geometric side;
+PBRT's independently qualified IrradianceIntegrator owns the hemispherical NEE/MIS
+estimator. Finite-cone mode samples outgoing camera rays over a declared cone.
 The patch is intentionally narrow and fail-closed: every expected upstream seam
 must occur exactly once. CI records this patcher and resulting binary hashes.
 """
@@ -35,16 +38,23 @@ class RimoSensorCamera : public CameraBase {
         int i=x+y*film.FullResolution().x;
         if(x<0 || y<0 || x>=film.FullResolution().x || y>=film.FullResolution().y ||
            i<0 || i>=int(origins.size())) return {};
+        const Transform tr=cameraTransform.RenderFromWorld();
+        if (irradiance) {
+            // Sensor origins are exact world-space surface points and directions are
+            // outward geometric-side normals. Start just outside and point inward;
+            // the IrradianceIntegrator then measures the camera-facing side of the
+            // first material-bearing hit, including delta-light direct terms.
+            Point3f origin=origins[i]+offset*directions[i];
+            Ray ray(tr(origin),tr(-directions[i]),SampleTime(s.time),medium);
+            return CameraRay{ray,SampledSpectrum(1)};
+        }
         Float u=s.pLens.x, v=s.pLens.y;
-        Float z=irradiance ? std::sqrt(std::max<Float>(0,1-u))
-                           : 1-u*(1-std::cos(angles[i]));
+        Float z=1-u*(1-std::cos(angles[i]));
         Float rr=std::sqrt(std::max<Float>(0,1-z*z)), phi=2*Pi*v;
         Vector3f local(rr*std::cos(phi),rr*std::sin(phi),z);
         Vector3f dir=Normalize(Frame::FromZ(directions[i]).FromLocal(local));
-        Point3f origin=origins[i]+(irradiance?offset:0)*directions[i];
-        const Transform tr=cameraTransform.RenderFromWorld();
-        Ray ray(tr(origin),tr(dir),SampleTime(s.time),medium);
-        return CameraRay{ray,SampledSpectrum(irradiance?Pi:1)};
+        Ray ray(tr(origins[i]),tr(dir),SampleTime(s.time),medium);
+        return CameraRay{ray,SampledSpectrum(1)};
     }
     PBRT_CPU_GPU pstd::optional<CameraRayDifferential> GenerateRayDifferential(
         CameraSample s, SampledWavelengths &l) const {
@@ -64,7 +74,7 @@ class RimoSensorCamera : public CameraBase {
         const Interaction &,Point2f,SampledWavelengths &) const {
         LOG_FATAL("RIMO sensor SampleWi unsupported"); return {};
     }
-    std::string ToString() const { return "RimoSensorCamera/1 CPU finite-cone/cosine sensor"; }
+    std::string ToString() const { return "RimoSensorCamera/2 CPU surface-hit/cone sensor"; }
   private:
     std::vector<Point3f> origins;
     std::vector<Vector3f> directions;
@@ -84,7 +94,7 @@ RimoSensorCamera *RimoSensorCamera::Create(const ParameterDictionary &p,
     auto directions=p.GetVector3fArray("directions");
     auto angles=p.GetFloatArray("halfangles");
     bool irradiance=p.GetOneBool("irradiance",false);
-    Float offset=p.GetOneFloat("surfaceoffset",1e-5);
+    Float offset=p.GetOneFloat("surfaceoffset",1e-4);
     if(origins.empty() || origins.size()!=directions.size() ||
        angles.size()!=origins.size() ||
        origins.size()!=size_t(film.FullResolution().x)*film.FullResolution().y ||
