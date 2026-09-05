@@ -1,0 +1,109 @@
+name: reference-irradiance-qualification
+
+on:
+  push:
+    branches:
+      - oracle/irradiance-fps-reference-2026-09-05
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reference-irradiance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  irradiance-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Checkout pregenerated RGB-to-spectrum tables
+        uses: actions/checkout@v5
+        with:
+          repository: mmp/rgb2spectrum
+          path: build
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libopenexr-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev \
+            libxi-dev libxext-dev libxfixes-dev libgl1-mesa-dev \
+            libwayland-bin libwayland-dev wayland-protocols \
+            libxkbcommon-dev libxkbcommon-x11-0
+
+      - name: Configure CPU reference build
+        run: |
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES=True
+
+      - name: Build irradiance reference renderer
+        run: cmake --build build --parallel 3 --target pbrt_exe imgtool
+
+      - name: Run analytic rendered irradiance qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 oracle/irradiance_canaries.py \
+            --pbrt build/pbrt \
+            --imgtool build/imgtool \
+            --out irradiance-canaries \
+            --commit "$GITHUB_SHA"
+
+      - name: Seal irradiance binary provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo 'schema=1'
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "commit=${GITHUB_SHA}"
+            echo 'qualification_surface=GI_ORACLE_CAMERA_IRRADIANCE_CPU_F32'
+            echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
+            echo "compiler=$(c++ --version | head -1)"
+            echo "cmake=$(cmake --version | head -1)"
+            echo 'submodules_begin'
+            git submodule status --recursive
+            echo 'submodules_end'
+            echo 'sources_begin'
+            sha256sum \
+              src/pbrt/cpu/integrators.cpp \
+              src/pbrt/cpu/integrators.h \
+              oracle/irradiance_canaries.py \
+              .github/workflows/reference-irradiance.yml
+            echo 'sources_end'
+            echo 'binaries_begin'
+            sha256sum build/pbrt build/imgtool
+            echo 'binaries_end'
+          } > irradiance-qualified-build.txt
+          ldd build/pbrt > irradiance-qualified-ldd.txt
+
+      - name: Upload qualified irradiance toolchain
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualified-pbrt-irradiance-${{ github.sha }}
+          path: |
+            build/pbrt
+            build/imgtool
+            irradiance-qualified-build.txt
+            irradiance-qualified-ldd.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload irradiance canary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: irradiance-canaries-${{ github.sha }}
+          path: irradiance-canaries/
+          if-no-files-found: error
+          retention-days: 14
