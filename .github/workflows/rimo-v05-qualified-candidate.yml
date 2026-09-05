@@ -2,7 +2,7 @@ name: rimo-v05-qualified-candidate
 on:
   push:
     branches: [rimo/reference-converged-2026-09-04]
-    paths: [.github/workflows/rimo-v05-qualified-candidate.yml]
+    paths: [.github/workflows/rimo-v05-qualified-candidate.yml, oracle/apply_rimo_v05_precision.py]
   workflow_dispatch:
 permissions:
   contents: read
