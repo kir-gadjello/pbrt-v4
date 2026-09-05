@@ -1,0 +1,54 @@
+{
+  "cameraCount": 12,
+  "definition": "12 fixed human-height FPS-like cameras selected from deterministic walkable candidates and frozen after visual rejection audit",
+  "eyeHeightMeters": 1.65,
+  "fovDegrees": 70,
+  "levels": [
+    {
+      "ambiguousTransmissive": 0,
+      "cameras": [
+        {"category":"emissive","centerHit":{"dist":4.214656965084266,"id":6,"name":"weathered limestone"},"covered":true,"depthVariation":1,"emissiveFraction":0.06666666666666667,"emissiveVisible":1.2222222222222223,"enclosure":0.75,"eye":[1.75,2.65,1.75],"farFrac":0.3333333333333333,"fov":70,"materialDiversity":1,"missFrac":0.3333333333333333,"name":"fps_emissive","nearFrac":0.3333333333333333,"nearestVisibleEmitter":null,"specialFraction":0.06666666666666667,"target":[-0.14659563428792,2.65,-1.534999999999998],"yaw":210},
+        {"category":"threshold","centerHit":null,"covered":true,"depthVariation":1,"emissiveFraction":0,"emissiveVisible":0,"enclosure":0.375,"eye":[4.75,5.45,3.25],"farFrac":0.5333333333333333,"fov":70,"materialDiversity":0.5714285714285714,"missFrac":0.5333333333333333,"name":"fps_threshold","nearFrac":0.4666666666666667,"nearestVisibleEmitter":null,"specialFraction":0,"target":[4.750000000000001,5.45,-6.75],"yaw":180},
+        {"category":"occluded","centerHit":{"dist":2.1000000000000014,"id":6,"name":"weathered limestone"},"covered":true,"depthVariation":0.9359560446000089,"emissiveFraction":0,"emissiveVisible":0,"enclosure":1,"eye":[-4.25,2.55,3.25],"farFrac":0.2,"fov":70,"materialDiversity":0.7142857142857143,"missFrac":0.13333333333333333,"name":"fps_occluded","nearFrac":0.8,"nearestVisibleEmitter":null,"specialFraction":0,"target":[-1.651923788646684,2.55,1.7500000000000007],"yaw":120}
+      ],
+      "fingerprint64": null,
+      "lighting": {"distantFrom":[-30,45,-50],"distantRGB":[3.2,2.85,2.35],"emissiveMaterials":[{"count":271,"id":13,"name":"emissive amber","world":[1.094649446494465,1.4765682656826569,0.5994464944649458]},{"count":186,"id":14,"name":"emissive cyan","world":[0.620967741935484,1.3311827956989248,-0.3435483870967744]}],"environmentRGB":[0.1,0.14,0.22]},
+      "solidVoxels":672370,"source":"pcg_island_ravine.js","sourceSha256":"10991cccb761f3d1c55fda9581b42a8554b416248d80876d345fa84fbb3bd839","triangles":102668,"voxelMeters":0.1
+    },
+    {
+      "ambiguousTransmissive":0,
+      "cameras":[
+        {"category":"emissive","centerHit":{"dist":7.049999999999992,"id":53,"name":"stone.21"},"covered":false,"depthVariation":0.19117271164296062,"emissiveFraction":0.13333333333333333,"emissiveVisible":6.653764867759106,"enclosure":0.75,"eye":[-0.45000000000000284,5.95,5.549999999999997],"farFrac":0,"fov":70,"materialDiversity":1,"missFrac":0,"name":"fps_emissive","nearFrac":0.4666666666666667,"nearestVisibleEmitter":4.9256958389508325,"specialFraction":0,"target":[-0.45000000000000207,5.95,-0.7949999999999955],"yaw":180},
+        {"category":"threshold","centerHit":null,"covered":true,"depthVariation":1,"emissiveFraction":0,"emissiveVisible":0,"enclosure":0.375,"eye":[-13.950000000000003,3.45,16.049999999999997],"farFrac":0.4666666666666667,"fov":70,"materialDiversity":1,"missFrac":0.4666666666666667,"name":"fps_threshold","nearFrac":0.5333333333333333,"nearestVisibleEmitter":null,"specialFraction":0,"target":[-22.61025403784439,3.45,21.049999999999997],"yaw":300},
+        {"category":"occluded","centerHit":{"dist":2.699999999999997,"id":54,"name":"stone.22"},"covered":true,"depthVariation":1,"emissiveFraction":0,"emissiveVisible":0,"enclosure":1,"eye":[1.0499999999999972,4.95,1.0499999999999972],"farFrac":0.2,"fov":70,"materialDiversity":1,"missFrac":0.2,"name":"fps_occluded","nearFrac":0.7333333333333333,"nearestVisibleEmitter":null,"specialFraction":0,"target":[-0.4500000000000042,4.95,3.6480762113533123],"yaw":330}
+      ],
+      "fingerprint64":null,
+      "lighting":{"distantFrom":[-30,45,-50],"distantRGB":[3.2,2.85,2.35],"emissiveMaterials":[{"count":1409,"id":248,"name":"emissive.0","world":[0.7062810503903449,2.962562100780696,1.427785663591198]},{"count":17,"id":249,"name":"emissive.1","world":[2.973529411764705,3.85,5.14411764705882]},{"count":646,"id":250,"name":"emissive.2","world":[0.643808049535604,2.156656346749226,-3.81780185758514]},{"count":10109,"id":251,"name":"emissive.3","world":[2.1328667523988507,6.583237708972203,1.403882678801068]},{"count":1535,"id":252,"name":"emissive.4","world":[5.082182410423453,6.290912052117264,-1.4128664495114016]},{"count":42,"id":253,"name":"emissive.5","world":[0.5333333333333314,3.7642857142857147,0.2809523809523782]},{"count":34,"id":254,"name":"emissive.6","world":[1.1705882352941188,4.820588235294117,0.18529411764705728]},{"count":35,"id":255,"name":"emissive.7","world":[4.64142857142857,5.7214285714285715,1.1614285714285728]}],"environmentRGB":[0.1,0.14,0.22]},
+      "solidVoxels":3454583,"source":"pcg_holed_building_among_trees.js","sourceSha256":"602700b403ff487377edff6b077d83c681e3cd91e3b2cafd233baa50fb741985","triangles":2039126,"voxelMeters":0.1
+    },
+    {
+      "ambiguousTransmissive":0,
+      "cameras":[
+        {"category":"emissive","centerHit":{"dist":5.831237718815221,"id":43,"name":"stone / concrete / masonry variant 11"},"covered":false,"depthVariation":0.6330223189820515,"emissiveFraction":0.06666666666666667,"emissiveVisible":1.2222222222222223,"enclosure":0.5,"eye":[13.049999999999997,3.75,5.549999999999997],"farFrac":0.06666666666666667,"fov":70,"materialDiversity":1,"missFrac":0.06666666666666667,"name":"fps_emissive","nearFrac":0.4666666666666667,"nearestVisibleEmitter":null,"specialFraction":0,"target":[8.504999999999995,3.75,8.174056973466847],"yaw":300},
+        {"category":"threshold","centerHit":null,"covered":true,"depthVariation":1,"emissiveFraction":0,"emissiveVisible":0,"enclosure":0.625,"eye":[-13.950000000000003,3.45,-16.950000000000003],"farFrac":0.5333333333333333,"fov":70,"materialDiversity":1,"missFrac":0.5333333333333333,"name":"fps_threshold","nearFrac":0.4666666666666667,"nearestVisibleEmitter":null,"specialFraction":0,"target":[-18.950000000000003,3.45,-25.61025403784439],"yaw":210},
+        {"category":"occluded","centerHit":null,"covered":true,"depthVariation":0.8821019838578144,"emissiveFraction":0,"emissiveVisible":0,"enclosure":1,"eye":[-4.950000000000003,10.65,2.549999999999997],"farFrac":0.13333333333333333,"fov":70,"materialDiversity":1,"missFrac":0.13333333333333333,"name":"fps_occluded","nearFrac":0.7333333333333333,"nearestVisibleEmitter":null,"specialFraction":0,"target":[0.04999999999999627,10.65,11.210254037844384],"yaw":30}
+      ],
+      "fingerprint64":"2ecad53e3939758c",
+      "lighting":{"distantFrom":[-30,45,-50],"distantRGB":[3.2,2.85,2.35],"emissiveMaterials":[{"count":18,"id":253,"name":"cool cyan emissive","world":[1.6111111111111107,1.3166666666666667,1.527777777777775]},{"count":20,"id":254,"name":"magenta emissive","world":[0.6499999999999986,1.4300000000000002,1.4399999999999977]},{"count":94,"id":255,"name":"warm-white emissive","world":[0.1276595744680833,1.9819148936170212,-0.6691489361702168]}],"environmentRGB":[0.1,0.14,0.22]},
+      "solidVoxels":3839625,"source":"pcg_building_carcass_among_trees.js","sourceSha256":"cef8a70ca3a20808f8fcd62c03c5fdacce497db49339913f5628d507776fe0d0","triangles":1897694,"voxelMeters":0.1
+    },
+    {
+      "ambiguousTransmissive":0,
+      "cameras":[
+        {"category":"threshold","centerHit":{"dist":4.09918691124634,"id":4,"name":"wood"},"covered":true,"depthVariation":1,"emissiveFraction":0,"emissiveVisible":0,"enclosure":0.5,"eye":[-0.8500000000000014,3.35,-14.350000000000001],"farFrac":0.4666666666666667,"fov":70,"materialDiversity":0.5714285714285714,"missFrac":0.4666666666666667,"name":"fps_threshold","nearFrac":0.5333333333333333,"nearestVisibleEmitter":null,"specialFraction":0,"target":[0.9946341100608516,3.35,-17.545],"yaw":150},
+        {"category":"occluded","centerHit":{"dist":2.550000000000001,"id":3,"name":"basalt"},"covered":true,"depthVariation":0.8903061670701147,"emissiveFraction":0,"emissiveVisible":0,"enclosure":1,"eye":[-5.350000000000001,2.65,-8.350000000000001],"farFrac":0.2,"fov":70,"materialDiversity":1,"missFrac":0.13333333333333333,"name":"fps_occluded","nearFrac":0.8,"nearestVisibleEmitter":null,"specialFraction":0,"target":[-5.350000000000001,2.65,-11.350000000000001],"yaw":180},
+        {"category":"mixed","centerHit":{"dist":2.9000000000000004,"id":2,"name":"limestone"},"covered":true,"depthVariation":1,"emissiveFraction":0,"emissiveVisible":0,"enclosure":0.75,"eye":[3.6499999999999986,4.45,-15.850000000000001],"farFrac":0.4,"fov":70,"materialDiversity":1,"missFrac":0.06666666666666667,"name":"fps_mixed","nearFrac":0.5333333333333333,"nearestVisibleEmitter":null,"specialFraction":0,"target":[1.0519237886466826,4.45,-14.350000000000001],"yaw":300}
+      ],
+      "fingerprint64":null,
+      "lighting":{"distantFrom":[-30,45,-50],"distantRGB":[3.2,2.85,2.35],"emissiveMaterials":[],"environmentRGB":[0.1,0.14,0.22]},
+      "solidVoxels":9336440,"source":"pcg_bunkers_under_canopy.js","sourceSha256":"76a1e897915997c60eb7eb8be16ae3a2e6409d0a2fa61098293614b7ad72a32e","triangles":1781918,"voxelMeters":0.1
+    }
+  ],
+  "name": "GI Oracle FPS Camera Suite 2026-09-05",
+  "schema": 2
+}
