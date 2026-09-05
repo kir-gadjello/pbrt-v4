@@ -1,0 +1,58 @@
+name: rimo-hdr-flip-artifact
+
+on:
+  push:
+    branches:
+      - rimo/reference-converged-2026-09-04
+    paths:
+      - .github/workflows/rimo-hdr-flip-artifact.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-hdr-flip:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout pinned NVIDIA FLIP v1.7
+        uses: actions/checkout@v5
+        with:
+          repository: NVlabs/flip
+          ref: b475eb4bf394ab877c42166c9eb0a84a02cc5b14
+          path: flip
+
+      - name: Configure and build CPU FLIP CLI
+        run: |
+          cmake -S flip -B flip/build -DCMAKE_BUILD_TYPE=Release -DFLIP_ENABLE_CUDA=OFF
+          cmake --build flip/build --parallel 3 --target flip-cli
+
+      - name: Smoke LDR and HDR modes
+        run: |
+          set -eux
+          BIN=$(find flip/build -type f -name flip -perm -111 | head -1)
+          test -n "$BIN"
+          "$BIN" --help >/tmp/flip-help.txt
+          grep -qi HDR /tmp/flip-help.txt
+          mkdir -p artifact/bin
+          cp "$BIN" artifact/bin/flip
+          cp flip/LICENSE artifact/LICENSE.NVlabs-FLIP
+          {
+            echo 'schema=rimo.hdr-flip-artifact/1'
+            echo 'upstream=NVlabs/flip'
+            echo 'upstream_commit=b475eb4bf394ab877c42166c9eb0a84a02cc5b14'
+            echo 'upstream_version=1.7'
+            echo 'license=BSD-3-Clause'
+            echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
+            echo "compiler=$(c++ --version | head -1)"
+            sha256sum artifact/bin/flip artifact/LICENSE.NVlabs-FLIP
+          } > artifact/provenance.txt
+
+      - name: Upload sealed HDR-FLIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rimo-hdr-flip-linux-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
