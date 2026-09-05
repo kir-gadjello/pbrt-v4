@@ -2,7 +2,7 @@ name: rimo-v05-qualified-candidate
 on:
   push:
     branches: [rimo/reference-converged-2026-09-04]
-    paths: [.github/workflows/rimo-v05-qualified-candidate.yml, oracle/apply_rimo_v05_precision.py]
+    paths: [.github/workflows/rimo-v05-qualified-candidate.yml, oracle/apply_rimo_v05_precision.py, oracle/apply_rimo_transmittance.py]
   workflow_dispatch:
 permissions:
   contents: read
@@ -38,7 +38,7 @@ jobs:
           echo "$?" > artifact/test-exit.txt
           python3 oracle/render_canaries.py --pbrt build-f64/pbrt --imgtool build-f64/imgtool --out artifact/transport --commit "$GITHUB_SHA" > artifact/transport.log 2>&1
           echo "$?" > artifact/transport-exit.txt
-          python3 oracle/irradiance_canaries.py --pbrt build-f64/pbrt --imgtool build-f64/imgtool --out artifact/irradiance --commit "$GITHUB_SHA" > artifact/irradiance.log 2>&1
+          python3 oracle/irradiance_canaries.py --pbrt build-f64/pbrt-v4 --imgtool build-f64/imgtool --out artifact/irradiance --commit "$GITHUB_SHA" > artifact/irradiance.log 2>&1
           echo "$?" > artifact/irradiance-exit.txt
           python3 oracle/rimo_sensor_canaries.py --pbrt build-f64/pbrt --imgtool build-f64/imgtool --out artifact/sensors --commit "$GITHUB_SHA" > artifact/sensors.log 2>&1
           echo "$?" > artifact/sensors-exit.txt
