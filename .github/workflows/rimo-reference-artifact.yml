@@ -22,65 +22,68 @@ jobs:
         uses: actions/checkout@v5
         with:
           submodules: true
-
       - name: Checkout pregenerated RGB-to-spectrum tables
         uses: actions/checkout@v5
         with:
           repository: mmp/rgb2spectrum
           path: build
-
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libopenexr-dev \
-            libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev \
-            libxi-dev libxext-dev libxfixes-dev libgl1-mesa-dev \
-            libwayland-bin libwayland-dev wayland-protocols \
-            libxkbcommon-dev libxkbcommon-x11-0
-
+            libopenexr-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev \
+            libxi-dev libxext-dev libxfixes-dev libgl1-mesa-dev libwayland-bin \
+            libwayland-dev wayland-protocols libxkbcommon-dev libxkbcommon-x11-0
+      - name: Inject analytic reference tests
+        run: |
+          cat oracle/reference_rough_trace_tests.inc >> src/pbrt/bsdfs_test.cpp
+          cat oracle/reference_bsdf_tests.inc >> src/pbrt/bsdfs_test.cpp
+          cat oracle/reference_float_tests.inc >> src/pbrt/util/float_test.cpp
       - name: Install deterministic RIMO sensor camera source
         run: python3 oracle/apply_rimo_sensor_camera.py
-
       - name: Install RIMO segment transmittance integrator
         run: python3 oracle/apply_rimo_transmittance_integrator.py
-
       - name: Configure f32 CPU reference
         run: |
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release -DPBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES=True
-
       - name: Build renderer, image tool and tests
         run: cmake --build build --parallel 3 --target pbrt_exe imgtool pbrt_test
-
-      - name: Run PBRT unit tests
+      - name: Verify reference tests are discoverable
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build/pbrt_test --list-tests | tee rimo-artifact-tests.txt
+          grep -q 'ReferenceRoughTrace[.]' rimo-artifact-tests.txt
+          grep -q 'ReferenceOracle[.]' rimo-artifact-tests.txt
+          grep -q 'ReferenceOracleFloat[.]' rimo-artifact-tests.txt
+      - name: Run broad PBRT plus injected reference unit tests
         run: ./build/pbrt_test
-
+      - name: Run scoped reference unit tests explicitly
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build/pbrt_test --test-filter 'ReferenceRoughTrace.*:ReferenceOracle.*:ReferenceOracleFloat.*' 2>&1 | tee rimo-reference-tests.log
+          grep -Eq 'Running [1-9][0-9]* tests?' rimo-reference-tests.log
       - name: Run rendered transport canaries
-        run: |
-          python3 oracle/render_canaries.py --pbrt build/pbrt --imgtool build/imgtool --out rimo-artifact/transport --commit "$GITHUB_SHA"
-
+        run: python3 oracle/render_canaries.py --pbrt build/pbrt --imgtool build/imgtool --out rimo-artifact/transport --commit "$GITHUB_SHA"
       - name: Run rendered irradiance canaries
-        run: |
-          python3 oracle/irradiance_canaries.py --pbrt build/pbrt --imgtool build/imgtool --out rimo-artifact/irradiance --commit "$GITHUB_SHA"
-
+        run: python3 oracle/irradiance_canaries.py --pbrt build/pbrt --imgtool build/imgtool --out rimo-artifact/irradiance --commit "$GITHUB_SHA"
       - name: Run RIMO batched sensor canaries
-        run: |
-          python3 oracle/rimo_sensor_canaries.py --pbrt build/pbrt --imgtool build/imgtool --out rimo-artifact/sensors --commit "$GITHUB_SHA"
-
+        run: python3 oracle/rimo_sensor_canaries.py --pbrt build/pbrt --imgtool build/imgtool --out rimo-artifact/sensors --commit "$GITHUB_SHA"
       - name: Run RIMO segment transmittance canaries
-        run: |
-          python3 oracle/rimo_transmittance_canaries.py --pbrt build/pbrt --imgtool build/imgtool --out rimo-artifact/transmittance --commit "$GITHUB_SHA"
-
+        run: python3 oracle/rimo_transmittance_canaries.py --pbrt build/pbrt --imgtool build/imgtool --out rimo-artifact/transmittance --commit "$GITHUB_SHA"
       - name: Seal artifact
         if: always()
         run: |
-          mkdir -p rimo-artifact/bin
+          mkdir -p rimo-artifact/bin rimo-artifact/tests
           cp build/pbrt build/imgtool rimo-artifact/bin/ || true
+          cp rimo-artifact-tests.txt rimo-reference-tests.log rimo-artifact/tests/ 2>/dev/null || true
           {
-            echo 'schema=rimo.pbrt-artifact/3'
+            echo 'schema=rimo.pbrt-artifact/4'
             echo "repository=${GITHUB_REPOSITORY}"
             echo "commit=${GITHUB_SHA}"
+            echo 'authority=GI_ORACLE_CPU_F32_PLUS_RIMO_SENSORS'
             echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
             echo "compiler=$(c++ --version | head -1 || true)"
             echo "cmake=$(cmake --version | head -1 || true)"
@@ -89,9 +92,8 @@ jobs:
             echo 'source_tree_after_rimo_patches_end'
             git submodule status --recursive
             sha256sum rimo-artifact/bin/pbrt rimo-artifact/bin/imgtool 2>/dev/null || true
-            sha256sum oracle/render_canaries.py oracle/irradiance_canaries.py oracle/apply_rimo_sensor_camera.py oracle/rimo_sensor_canaries.py oracle/apply_rimo_transmittance_integrator.py oracle/rimo_transmittance_canaries.py oracle/REFERENCE_RELEASE.md
+            sha256sum oracle/reference_bsdf_tests.inc oracle/reference_float_tests.inc oracle/reference_rough_trace_tests.inc oracle/render_canaries.py oracle/irradiance_canaries.py oracle/apply_rimo_sensor_camera.py oracle/rimo_sensor_canaries.py oracle/apply_rimo_transmittance_integrator.py oracle/rimo_transmittance_canaries.py oracle/REFERENCE_RELEASE.md
           } > rimo-artifact/provenance.txt
-
       - name: Upload sealed RIMO PBRT artifact
         if: always()
         uses: actions/upload-artifact@v4
