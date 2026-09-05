@@ -31,8 +31,12 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libopenexr-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxext libxfixes-dev libgl1-mesa-dev libwayland-bin libwayland-dev wayland-protocols libxkbcommon-dev libxkbcommon-x11-0 || \
           sudo apt-get install -y --no-install-recommends libopenexr-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxext-dev libxfixes-dev libgl1-mesa-dev libwayland-bin libwayland-dev wayland-protocols libxkbcommon-dev libxkbcommon-x11-0
+      - name: Inject analytic reference tests
+        run: |
+          cat oracle/reference_rough_trace_tests.inc >> src/pbrt/bsdfs_test.cpp
+          cat oracle/reference_bsdf_tests.inc >> src/pbrt/bsdfs_test.cpp
+          cat oracle/reference_float_tests.inc >> src/pbrt/util/float_test.cpp
       - name: Install RIMO sensor source
         run: python3 oracle/apply_rimo_sensor_camera.py
       - name: Install RIMO transmittance source
@@ -43,19 +47,30 @@ jobs:
           cmake .. -DCMAKE_BUILD_TYPE=Release -DPBRT_FLOAT_AS_DOUBLE=ON -DPBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES=True
       - name: Build f64 renderer and tests
         run: cmake --build build-f64 --parallel 3 --target pbrt_exe imgtool pbrt_test
+      - name: Verify reference tests are discoverable
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-f64/pbrt_test --list-tests | tee artifact-tests.txt
+          grep -q 'ReferenceRoughTrace[.]' artifact-tests.txt
+          grep -q 'ReferenceOracle[.]' artifact-tests.txt
+          grep -q 'ReferenceOracleFloat[.]' artifact-tests.txt
       - name: Diagnose broad f64 unit tests
         shell: bash
         run: |
           mkdir -p artifact
           set +e
-          ./build-f64/pbrt_test --gtest_color=no 2>&1 | tee artifact/pbrt-test-broad.log
+          ./build-f64/pbrt_test 2>&1 | tee artifact/pbrt-test-broad.log
           rc=${PIPESTATUS[0]}
           echo "$rc" > artifact/pbrt-test-broad.exit
           echo "broad_pbrt_test_exit=$rc"
           exit 0
       - name: Run scoped RIMO f64 unit tests
+        shell: bash
         run: |
-          ./build-f64/pbrt_test --gtest_color=no --gtest_filter='Reference*.*' 2>&1 | tee artifact/pbrt-test-rimo.log
+          set -euo pipefail
+          ./build-f64/pbrt_test --test-filter 'ReferenceRoughTrace.*:ReferenceOracle.*:ReferenceOracleFloat.*' 2>&1 | tee artifact/pbrt-test-rimo.log
+          grep -Eq 'Running [1-9][0-9]* tests?' artifact/pbrt-test-rimo.log
       - name: Run f64 transport canaries
         run: python3 oracle/render_canaries.py --pbrt build-f64/pbrt --imgtool build-f64/imgtool --out artifact/transport --commit "$GITHUB_SHA"
       - name: Run f64 irradiance canaries
@@ -67,12 +82,13 @@ jobs:
       - name: Seal f64 artifact
         if: always()
         run: |
-          mkdir -p artifact/bin
+          mkdir -p artifact/bin artifact/tests
           cp build-f64/pbrt build-f64/imgtool artifact/bin/ || true
+          cp artifact-tests.txt artifact/tests/ 2>/dev/null || true
           broad=missing
           if [ -f artifact/pbrt-test-broad.exit ]; then broad=$(cat artifact/pbrt-test-broad.exit); fi
           {
-            echo 'schema=rimo.pbrt-f64-meta-artifact/2'
+            echo 'schema=rimo.pbrt-f64-meta-artifact/3'
             echo "repository=${GITHUB_REPOSITORY}"
             echo "commit=${GITHUB_SHA}"
             echo 'PBRT_FLOAT_AS_DOUBLE=ON'
@@ -81,7 +97,7 @@ jobs:
             echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
             echo "compiler=$(c++ --version | head -1 || true)"
             sha256sum artifact/bin/pbrt artifact/bin/imgtool 2>/dev/null || true
-            sha256sum oracle/render_canaries.py oracle/irradiance_canaries.py oracle/rimo_sensor_canaries.py oracle/rimo_transmittance_canaries.py oracle/apply_rimo_sensor_camera.py oracle/apply_rimo_transmittance_integrator.py
+            sha256sum oracle/reference_bsdf_tests.inc oracle/reference_float_tests.inc oracle/reference_rough_trace_tests.inc oracle/render_canaries.py oracle/irradiance_canaries.py oracle/rimo_sensor_canaries.py oracle/rimo_transmittance_canaries.py oracle/apply_rimo_sensor_camera.py oracle/apply_rimo_transmittance_integrator.py
           } > artifact/provenance.txt
       - name: Upload f64 meta-oracle artifact
         if: always()
