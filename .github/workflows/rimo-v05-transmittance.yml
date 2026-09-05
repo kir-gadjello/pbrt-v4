@@ -1,0 +1,54 @@
+name: rimo-v05-transmittance
+on:
+  push:
+    branches: [rimo/reference-converged-2026-09-04]
+    paths: [.github/workflows/rimo-v05-transmittance.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  kernel:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: actions/checkout@v5
+        with:
+          repository: mmp/rgb2spectrum
+          path: build-f64
+      - name: Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libopenexr-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxext-dev libxfixes-dev libgl1-mesa-dev libwayland-bin libwayland-dev wayland-protocols libxkbcommon-dev libxkbcommon-x11-0
+      - name: Install and build kernel
+        run: |
+          mkdir -p artifact
+          python3 oracle/apply_rimo_transmittance.py
+          cmake -S . -B build-f64 -DCMAKE_BUILD_TYPE=Release -DPBRT_FLOAT_AS_DOUBLE=ON -DPBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES=True > artifact/configure.log 2>&1
+          cmake --build build-f64 --parallel 3 --target pbrt_exe imgtool pbrt_test > artifact/build.log 2>&1
+      - name: Preserve tests and canaries
+        if: always()
+        run: |
+          mkdir -p artifact/bin
+          set +e
+          timeout 360 ./build-f64/pbrt_test --gtest_output=xml:artifact/tests.xml > artifact/tests.log 2>&1
+          echo "$?" > artifact/test-exit.txt
+          python3 oracle/rimo_sensor_canaries.py --pbrt build-f64/pbrt --imgtool build-f64/imgtool --out artifact/sensors --commit "$GITHUB_SHA" > artifact/sensors.log 2>&1
+          echo "$?" > artifact/sensors-exit.txt
+          cp build-f64/pbrt build-f64/imgtool build-f64/pbrt_test artifact/bin/ || true
+          git rev-parse HEAD > artifact/commit.txt
+          git submodule status --recursive > artifact/submodules.txt
+          c++ --version > artifact/compiler.txt
+          sha256sum artifact/bin/* > artifact/binaries.sha256 || true
+          tar --exclude=.git --exclude=artifact --exclude=build-f64 -czf /tmp/pbrt-source.tar.gz .
+          cp /tmp/pbrt-source.tar.gz artifact/
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rimo-v05-transmittance-native
+          path: artifact/
+          retention-days: 14
+          if-no-files-found: error
