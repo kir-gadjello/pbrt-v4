@@ -23,6 +23,29 @@ jobs:
         with:
           submodules: true
 
+      - name: Validate oracle tooling and frozen camera suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            oracle/irradiance_canaries.py \
+            oracle/process_irradiance_camera.py \
+            oracle/compare_irradiance.py
+          bash -n oracle/run_irradiance_suite.sh
+          node --check oracle/voxel_fps_oracle.js
+          python3 - <<'PY'
+          import json
+          p='oracle/fps_camera_suite.json'
+          d=json.load(open(p))
+          assert d['schema'] == 2
+          assert d['cameraCount'] == 12
+          assert len(d['levels']) == 4
+          assert sum(len(x['cameras']) for x in d['levels']) == 12
+          assert all(x['ambiguousTransmissive'] == 0 for x in d['levels'])
+          assert all(abs(c['eye'][1]) < 1000 for x in d['levels'] for c in x['cameras'])
+          print('frozen FPS camera suite valid')
+          PY
+
       - name: Checkout pregenerated RGB-to-spectrum tables
         uses: actions/checkout@v5
         with:
@@ -64,7 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           {
-            echo 'schema=1'
+            echo 'schema=2'
             echo "repository=${GITHUB_REPOSITORY}"
             echo "commit=${GITHUB_SHA}"
             echo 'qualification_surface=GI_ORACLE_CAMERA_IRRADIANCE_CPU_F32'
@@ -79,6 +102,12 @@ jobs:
               src/pbrt/cpu/integrators.cpp \
               src/pbrt/cpu/integrators.h \
               oracle/irradiance_canaries.py \
+              oracle/voxel_fps_oracle.js \
+              oracle/fps_camera_suite.json \
+              oracle/process_irradiance_camera.py \
+              oracle/run_irradiance_suite.sh \
+              oracle/compare_irradiance.py \
+              oracle/FPS_IRRADIANCE_ORACLE.md \
               .github/workflows/reference-irradiance.yml
             echo 'sources_end'
             echo 'binaries_begin'
