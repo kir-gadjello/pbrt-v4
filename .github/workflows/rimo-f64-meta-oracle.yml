@@ -1,0 +1,68 @@
+name: rimo-f64-meta-oracle
+
+on:
+  push:
+    branches:
+      - rimo/reference-converged-2026-09-04
+    paths:
+      - .github/workflows/rimo-f64-meta-oracle.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  f64-linux-cpu:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - uses: actions/checkout@v5
+        with:
+          repository: mmp/rgb2spectrum
+          path: build-f64
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libopenexr-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxext-dev libxfixes-dev libgl1-mesa-dev libwayland-bin libwayland-dev wayland-protocols libxkbcommon-dev libxkbcommon-x11-0
+      - name: Install RIMO sensor source
+        run: python3 oracle/apply_rimo_sensor_camera.py
+      - name: Configure f64
+        run: |
+          cd build-f64
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DPBRT_FLOAT_AS_DOUBLE=ON -DPBRT_USE_PREGENERATED_RGB_TO_SPECTRUM_TABLES=True
+      - name: Build f64 renderer and tests
+        run: cmake --build build-f64 --parallel 3 --target pbrt_exe imgtool pbrt_test
+      - name: Run f64 unit tests
+        run: ./build-f64/pbrt_test
+      - name: Run f64 transport canaries
+        run: python3 oracle/render_canaries.py --pbrt build-f64/pbrt --imgtool build-f64/imgtool --out artifact/transport --commit "$GITHUB_SHA"
+      - name: Run f64 irradiance canaries
+        run: python3 oracle/irradiance_canaries.py --pbrt build-f64/pbrt --imgtool build-f64/imgtool --out artifact/irradiance --commit "$GITHUB_SHA"
+      - name: Run f64 RIMO sensor canaries
+        run: python3 oracle/rimo_sensor_canaries.py --pbrt build-f64/pbrt --imgtool build-f64/imgtool --out artifact/sensors --commit "$GITHUB_SHA"
+      - name: Seal f64 artifact
+        if: always()
+        run: |
+          mkdir -p artifact/bin
+          cp build-f64/pbrt build-f64/imgtool artifact/bin/ || true
+          {
+            echo 'schema=rimo.pbrt-f64-meta-artifact/1'
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "commit=${GITHUB_SHA}"
+            echo 'PBRT_FLOAT_AS_DOUBLE=ON'
+            echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
+            echo "compiler=$(c++ --version | head -1 || true)"
+            sha256sum artifact/bin/pbrt artifact/bin/imgtool 2>/dev/null || true
+            sha256sum oracle/render_canaries.py oracle/irradiance_canaries.py oracle/rimo_sensor_canaries.py oracle/apply_rimo_sensor_camera.py
+          } > artifact/provenance.txt
+      - name: Upload f64 meta-oracle artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rimo-pbrt-f64-linux-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
