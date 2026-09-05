@@ -3,9 +3,15 @@
 
 The integrator directly invokes PBRT Integrator::Tr between authored endpoints.
 It therefore exercises ordinary scene intersection, opaque blocking, null material
-interfaces, and PBRT medium transmittance without camera-image ratios. Segment
-starts are currently required to be in the exterior/vacuum medium; crossing any
-number of correctly authored null medium interfaces is supported.
+interfaces, and PBRT medium transmittance without camera-image ratios.
+
+The film stores spectral sensor response, not dimensionless transmittance directly.
+A `calibration=true` mode writes unit spectral transmission with the identical film,
+sampler, wavelength sequence and pixel layout. RIMO divides the measured RGB response
+componentwise by this paired vacuum calibration. This yields a well-defined RGB sensor
+transmittance relative to an equal-energy incident spectrum while preserving PBRT's
+spectral transport and sensor conversion. Segment starts are v1 exterior/vacuum; any
+number of correctly authored null medium interfaces may be crossed.
 """
 from pathlib import Path
 
@@ -22,15 +28,15 @@ DECL=r'''// RimoTransmittanceIntegrator Definition
 // Direct metrology sensor for unscattered segment transmittance. Each film pixel
 // maps to one authored start/end pair. The estimator calls Integrator::Tr, so it
 // uses the same opaque blocking, null-interface traversal, and medium transport
-// machinery as PBRT's lighting paths. The start point is exterior/vacuum in v1;
-// nested media entered through authored interfaces are fully traversed.
+// machinery as PBRT's lighting paths. In calibration mode it writes unit spectral
+// transmission; measured/calibration film RGB is the dimensionless RIMO result.
 class RimoTransmittanceIntegrator : public ImageTileIntegrator {
   public:
     RimoTransmittanceIntegrator(std::vector<Point3f> starts, std::vector<Point3f> ends,
-                                Camera camera, Sampler sampler, Primitive aggregate,
-                                std::vector<Light> lights)
+                                bool calibration, Camera camera, Sampler sampler,
+                                Primitive aggregate, std::vector<Light> lights)
         : ImageTileIntegrator(camera, sampler, aggregate, lights),
-          starts(std::move(starts)), ends(std::move(ends)) {}
+          starts(std::move(starts)), ends(std::move(ends)), calibration(calibration) {}
 
     static std::unique_ptr<RimoTransmittanceIntegrator> Create(
         const ParameterDictionary &parameters, Camera camera, Sampler sampler,
@@ -42,6 +48,7 @@ class RimoTransmittanceIntegrator : public ImageTileIntegrator {
 
   private:
     std::vector<Point3f> starts, ends;
+    bool calibration;
 };
 
 '''
@@ -55,6 +62,7 @@ std::unique_ptr<RimoTransmittanceIntegrator> RimoTransmittanceIntegrator::Create
     Primitive aggregate, std::vector<Light> lights, const FileLoc *loc) {
     std::vector<Point3f> starts = parameters.GetPoint3fArray("starts");
     std::vector<Point3f> ends = parameters.GetPoint3fArray("ends");
+    bool calibration = parameters.GetOneBool("calibration", false);
     Point2i resolution = camera.GetFilm().FullResolution();
     size_t expected = size_t(resolution.x) * size_t(resolution.y);
     if (starts.empty() || starts.size() != ends.size() || starts.size() != expected)
@@ -64,7 +72,7 @@ std::unique_ptr<RimoTransmittanceIntegrator> RimoTransmittanceIntegrator::Create
             ErrorExit(loc, "RIMO transmittance segment %d is non-finite or zero length", int(i));
     }
     return std::make_unique<RimoTransmittanceIntegrator>(
-        std::move(starts), std::move(ends), camera, sampler, aggregate, lights);
+        std::move(starts), std::move(ends), calibration, camera, sampler, aggregate, lights);
 }
 
 void RimoTransmittanceIntegrator::EvaluatePixelSample(
@@ -79,11 +87,14 @@ void RimoTransmittanceIntegrator::EvaluatePixelSample(
     Filter filter = camera.GetFilm().GetFilter();
     CameraSample cs = GetCameraSample(sampler, pPixel, filter);
 
-    // Endpoint interactions are non-surface points in the exterior medium.
-    // Integrator::Tr discovers and traverses subsequent null medium interfaces.
-    Interaction p0(starts[index], Float(0), Medium(nullptr));
-    Interaction p1(ends[index], Float(0), Medium(nullptr));
-    SampledSpectrum T = Tr(p0, p1, lambda);
+    SampledSpectrum T(1.f);
+    if (!calibration) {
+        // Endpoint interactions are non-surface points in the exterior medium.
+        // Integrator::Tr discovers and traverses subsequent null medium interfaces.
+        Interaction p0(starts[index], Float(0), Medium(nullptr));
+        Interaction p1(ends[index], Float(0), Medium(nullptr));
+        T = Tr(p0, p1, lambda);
+    }
     if (T.HasNaNs()) {
         LOG_ERROR("NaN RIMO transmittance at pixel (%d,%d), sample %d", pPixel.x, pPixel.y,
                   sampleIndex);
@@ -94,7 +105,8 @@ void RimoTransmittanceIntegrator::EvaluatePixelSample(
 }
 
 std::string RimoTransmittanceIntegrator::ToString() const {
-    return StringPrintf("[ RimoTransmittanceIntegrator segments: %d ]", int(starts.size()));
+    return StringPrintf("[ RimoTransmittanceIntegrator segments: %d calibration: %s ]",
+                        int(starts.size()), calibration);
 }
 
 '''
