@@ -39,6 +39,9 @@ jobs:
             libwayland-bin libwayland-dev wayland-protocols \
             libxkbcommon-dev libxkbcommon-x11-0
 
+      - name: Install deterministic RIMO sensor camera source
+        run: python3 oracle/apply_rimo_sensor_camera.py
+
       - name: Configure f32 CPU reference
         run: |
           cd build
@@ -58,21 +61,28 @@ jobs:
         run: |
           python3 oracle/irradiance_canaries.py --pbrt build/pbrt --imgtool build/imgtool --out rimo-artifact/irradiance --commit "$GITHUB_SHA"
 
+      - name: Run RIMO batched sensor canaries
+        run: |
+          python3 oracle/rimo_sensor_canaries.py --pbrt build/pbrt --imgtool build/imgtool --out rimo-artifact/sensors --commit "$GITHUB_SHA"
+
       - name: Seal artifact
         if: always()
         run: |
           mkdir -p rimo-artifact/bin
           cp build/pbrt build/imgtool rimo-artifact/bin/ || true
           {
-            echo 'schema=rimo.pbrt-artifact/1'
+            echo 'schema=rimo.pbrt-artifact/2'
             echo "repository=${GITHUB_REPOSITORY}"
             echo "commit=${GITHUB_SHA}"
             echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
             echo "compiler=$(c++ --version | head -1 || true)"
             echo "cmake=$(cmake --version | head -1 || true)"
+            echo 'source_tree_after_sensor_patch_begin'
+            sha256sum src/pbrt/base/camera.h src/pbrt/cameras.h src/pbrt/cameras.cpp
+            echo 'source_tree_after_sensor_patch_end'
             git submodule status --recursive
             sha256sum rimo-artifact/bin/pbrt rimo-artifact/bin/imgtool 2>/dev/null || true
-            sha256sum oracle/render_canaries.py oracle/irradiance_canaries.py oracle/REFERENCE_RELEASE.md
+            sha256sum oracle/render_canaries.py oracle/irradiance_canaries.py oracle/apply_rimo_sensor_camera.py oracle/rimo_sensor_canaries.py oracle/REFERENCE_RELEASE.md
           } > rimo-artifact/provenance.txt
 
       - name: Upload sealed RIMO PBRT artifact
