@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - oracle/reference-hardening-2026-09-04
+      - oracle/irradiance-fps-reference-2026-09-05
   workflow_dispatch:
 
 permissions:
@@ -91,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           {
-            echo 'schema=2'
+            echo 'schema=3'
             echo "repository=${GITHUB_REPOSITORY}"
             echo "commit=${GITHUB_SHA}"
             echo 'qualification_surface=GI_ORACLE_CPU_F32'
@@ -99,9 +100,9 @@ jobs:
             echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
             echo "compiler=$(c++ --version | head -1)"
             echo "cmake=$(cmake --version | head -1)"
-            echo 'pbrt_version_begin'
-            ./build/pbrt --version || true
-            echo 'pbrt_version_end'
+            echo 'pbrt_banner_begin'
+            ./build/pbrt --help 2>&1 | head -20 || true
+            echo 'pbrt_banner_end'
             echo 'submodules_begin'
             git submodule status --recursive
             echo 'submodules_end'
@@ -218,7 +219,7 @@ jobs:
         run: |
           set -euo pipefail
           {
-            echo 'schema=2'
+            echo 'schema=3'
             echo "repository=${GITHUB_REPOSITORY}"
             echo "commit=${GITHUB_SHA}"
             echo 'qualification_surface=GI_ORACLE_CPU_F64_META'
